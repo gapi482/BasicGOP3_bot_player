@@ -1,0 +1,153 @@
+{
+  "screen_resolution": [
+    1920,
+    1080
+  ],
+  "system_bars": {
+    "top_bar_height": 40,
+    "bottom_bar_height": 40,
+    "side_margin": 0
+  },
+  "game_window": {
+    "left": 2,
+    "top": 24,
+    "width": 1913,
+    "height": 1008
+  },
+  "calibrated_coords": {
+    "player_card1": [
+      929,
+      673
+    ],
+    "player_card2": [
+      1003,
+      663
+    ],
+    "flop_card1": [
+      778,
+      445
+    ],
+	 "flop_card2": [
+      870,
+      441
+    ],
+    "flop_card3": [
+      964,
+      441
+    ],
+    "turn_card": [
+      1061,
+      441
+    ],
+    "river_card": [
+      1139,
+      449
+    ],
+    "fold_button": [
+      736,
+      971
+    ],
+    "check_button": [
+      1089,
+      976
+    ],
+    "bet_button": [
+      1472,
+      978
+    ]
+  },
+  "calibrated_window": {
+    "top_left": [
+      2,
+      24
+    ],
+    "bottom_right": [
+      1915,
+      1032
+    ]
+  },
+  "screen_regions": {
+    "game_window": [
+      -8,
+      -8,
+      1936,
+      1056
+    ],
+    "player_card1": [
+      899,
+      633,
+      60,
+      80
+    ],
+    "player_card2": [
+      973,
+      623,
+      60,
+      80
+    ],
+    "flop_cards": [
+      [
+        743,
+        400,
+        70,
+        90
+      ],
+      [
+        801,
+        396,
+        70,
+        90
+      ],
+      [
+        929,
+        396,
+        70,
+        90
+      ]
+    ],
+    "turn_card": [
+      1026,
+      408,
+      70,
+      90
+    ],
+    "river_card": [
+      1104,
+      404,
+      70,
+      90
+    ],
+    "action_buttons": {
+      "fold": [
+        676,
+        941,
+        120,
+        60
+      ],
+      "check": [
+        1029,
+        946,
+        120,
+        60
+      ],
+      "bet": [
+        1412,
+        948,
+        120,
+        60
+      ]
+    },
+    "chips_display": [
+      50,
+      50,
+      200,
+      50
+    ],
+    "timer": [
+      1700,
+      50,
+      150,
+      50
+    ]
+  }
+}
