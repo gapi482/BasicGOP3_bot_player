@@ -62,7 +62,60 @@ class WindowDetector:
         
         return game_window
 
+
 class ScreenshotManager:
+    """Manage screenshot operations"""
+
+    def __init__(self, game_window=None, logger=None):
+        self.game_window = game_window
+        self.window_capture = GameWindowCapture("GOP3", logger)
+        self.logger = logger or Logger()
+
+    def capture_full_screen(self):
+        """Capture full screen screenshot"""
+        try:
+            img = ImageGrab.grab()
+            img.save('full_screen_test.png')
+            # Read back and ensure proper format
+            result = cv2.imread('full_screen_test.png')
+            if result is not None:
+                result = self.window_capture._ensure_bgr_format(result)
+            return result
+        except Exception as e:
+            self.logger.log_error(f"Error taking full screen screenshot: {e}", e)
+            return None
+
+    def capture_game_window(self):
+        """Capture game window screenshot"""
+        self.logger.log("Taking screenshot...")
+        try:
+            # Try to use the window capture first
+            img = self.window_capture.capture_game_image()
+
+            if img is not None:
+                # Save for debugging
+                cv2.imwrite('current_game.png', img)
+                return img
+            else:
+                # Fallback to old method
+                self.logger.log("Window capture failed, using fallback method")
+                im = ImageGrab.grab(bbox=(
+                    self.game_window['left'],
+                    self.game_window['top'],
+                    self.game_window['left'] + self.game_window['width'],
+                    self.game_window['top'] + self.game_window['height']
+                ))
+                screenshot_path = 'current_game.png'
+                im.save(screenshot_path)
+                
+                # Read back and ensure proper format
+                result = cv2.imread(screenshot_path)
+                if result is not None:
+                    result = self.window_capture._ensure_bgr_format(result)
+                return result
+        except Exception as e:
+            self.logger.log_error(f"Error taking screenshot: {e}", e)
+            return None
     """Manage screenshot operations"""
     
     def __init__(self, game_window=None):
@@ -214,14 +267,98 @@ class RegionUpdater:
         
         return regions
 
-
-import pygetwindow as gw
-import cv2
-import numpy as np
-import pyscreenshot as ImageGrab
-import time
-
 class GameWindowCapture:
+    """Handle game window detection and image capture"""
+
+    def __init__(self, window_title="GOP3", logger=None):
+        self.window_title = window_title
+        self.window = None
+        self.window_index = 0
+        self.last_capture_time = 0
+        self.capture_interval = 0.1
+        self.logger = logger or Logger()
+
+    def _ensure_bgr_format(self, img):
+        """Ensure image is in BGR format"""
+        if img is None:
+            return None
+        
+        if len(img.shape) == 2:
+            # Grayscale to BGR
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif len(img.shape) == 3 and img.shape[2] == 4:
+            # RGBA to BGR
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        elif len(img.shape) == 3 and img.shape[2] == 3:
+            # Already BGR
+            return img
+        else:
+            self.logger.log(f"Unknown image format: {img.shape}", level="WARNING")
+            return img
+
+    def capture_window_image(self, window=None):
+        """Capture image from specific window"""
+        if window is None:
+            window = self.window
+        
+        if window is None:
+            return None
+        
+        try:
+            # Get window bounds
+            left, top, right, bottom = window.left, window.top, window.right, window.bottom
+            width, height = right - left, bottom - top
+            
+            if width <= 0 or height <= 0:
+                self.logger.log(f"Invalid window dimensions: {width}x{height}", level="ERROR")
+                return None
+            
+            # Capture screenshot using ImageGrab
+            screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
+            
+            # Convert to numpy array and ensure BGR format
+            img = np.array(screenshot)
+            if len(img.shape) == 3 and img.shape[2] == 3:
+                # RGB to BGR conversion
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            elif len(img.shape) == 3 and img.shape[2] == 4:
+                # RGBA to BGR conversion
+                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+            
+            return self._ensure_bgr_format(img)
+            
+        except Exception as e:
+            self.logger.log_error(f"Error capturing window image: {e}", e)
+            return None
+
+    def capture_game_image(self):
+        """Capture game image with proper error handling"""
+        current_time = time.time()
+        
+        # Check if enough time has passed since last capture
+        if current_time - self.last_capture_time < self.capture_interval:
+            time.sleep(self.capture_interval - (current_time - self.last_capture_time))
+        
+        try:
+            # Find window if not already found
+            if self.window is None:
+                if not self.find_window():
+                    return None
+            
+            # Capture the image
+            img = self.capture_window_image(self.window)
+            
+            if img is not None:
+                self.last_capture_time = time.time()
+                self.logger.log(f"Successfully captured game image: {img.shape}")
+            else:
+                self.logger.log("Failed to capture game image", level="WARNING")
+            
+            return img
+            
+        except Exception as e:
+            self.logger.log_error(f"Error in capture_game_image: {e}", e)
+            return None
     """Handle game window detection and image capture"""
     
     def __init__(self, window_title="GOP3"):

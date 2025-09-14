@@ -2,7 +2,6 @@
 """
 Game Simulation Module
 """
-
 import random
 from typing import List, Tuple
 from phevaluator import evaluate_cards
@@ -13,7 +12,7 @@ class GameSimulator:
         self.suits = ['d', 's', 'c', 'h']
         self.ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
         self.cards = [r + s for r in self.ranks for s in self.suits]
-    
+
     def card_to_values(self, card: str) -> Tuple[int, int]:
         """Convert card string to rank and suit values for phevaluator"""
         if not card or len(card) < 2:
@@ -45,7 +44,7 @@ class GameSimulator:
         suit = suit_map.get(suit_char, 1)  # Default to spades
         
         return rank, suit
-    
+
     def simulate_hand(self, hand: List[str], table: List[str], players: int = 2) -> int:
         """Simulate one hand of poker"""
         # Validate inputs
@@ -53,9 +52,9 @@ class GameSimulator:
             print(f"Invalid hand: {hand}")
             return 1  # Default to loss
         
-        # Filter out None values
-        hand = [card for card in hand if card is not None]
-        table = [card for card in table if card is not None]
+        # Filter out None values and invalid cards
+        hand = [card for card in hand if card is not None and len(card) == 2]
+        table = [card for card in table if card is not None and len(card) == 2]
         
         if len(hand) < 2:
             print(f"Invalid hand after filtering: {hand}")
@@ -73,48 +72,37 @@ class GameSimulator:
         # Deal cards to opponents
         opponent_hands = []
         for _ in range(players - 1):
-            opponent_hands.append([deck.pop(), deck.pop()])
+            if len(deck) >= 2:
+                opponent_hands.append([deck.pop(), deck.pop()])
+            else:
+                break  # Not enough cards
         
         # Deal remaining community cards
-        while len(table) < 5:
-            if deck:  # Make sure we have cards left
-                table.append(deck.pop())
-            else:
-                break  # No more cards to deal
+        while len(table) < 5 and len(deck) > 0:
+            table.append(deck.pop())
         
-        # Evaluate all hands - FIXED: Properly handle card conversion
         try:
-            # Convert cards to the format expected by phevaluator
-            my_hand_cards = []
-            for card in hand:
-                if card and len(card) == 2:  # Valid card string
-                    rank, suit = self.card_to_values(card)
-                    my_hand_cards.append((rank, suit))
-            
-            if len(my_hand_cards) < 2:
-                print(f"Invalid hand cards after conversion: {my_hand_cards}")
+            # FIXED: Pass card strings directly to evaluate_cards
+            # phevaluator can handle card strings like "As", "Kh", etc.
+            all_my_cards = hand + table
+            if len(all_my_cards) >= 2:
+                my_hand_rank = evaluate_cards(*all_my_cards)
+            else:
+                print(f"Not enough cards for evaluation: {all_my_cards}")
                 return 1  # Default to loss
             
-            # Evaluate my hand
-            my_hand_rank = evaluate_cards(*my_hand_cards)
-            
             best_opponent_rank = float('inf')
+            
             for opponent_hand in opponent_hands:
                 opponent_cards = opponent_hand + table
-                
-                # Convert opponent cards
-                opponent_card_values = []
-                for card in opponent_cards:
-                    if card and len(card) == 2:
-                        rank, suit = self.card_to_values(card)
-                        opponent_card_values.append((rank, suit))
-                
-                if len(opponent_card_values) >= 2:  # Need at least 2 cards
+                if len(opponent_cards) >= 2:  # Need at least 2 cards
                     try:
-                        opponent_rank = evaluate_cards(*opponent_card_values)
+                        # FIXED: Pass card strings directly to evaluate_cards
+                        opponent_rank = evaluate_cards(*opponent_cards)
                         best_opponent_rank = min(best_opponent_rank, opponent_rank)
                     except Exception as e:
-                        print(f"Error evaluating opponent hand: {e}")
+                        print(f"Error evaluating opponent hand {opponent_cards}: {e}")
+                        continue
             
             # Return result: 0 = win, 1 = lose, 2 = tie
             if my_hand_rank < best_opponent_rank:
@@ -129,19 +117,19 @@ class GameSimulator:
             import traceback
             traceback.print_exc()
             return 1  # Default to loss
-        
+
     def monte_carlo_simulation(self, hand: List[str], table: List[str], players: int = 2, samples: int = 10000) -> List[float]:
         """Run Monte Carlo simulation to calculate win probabilities"""
         results = [0, 0, 0]  # [wins, losses, ties]
-            
+        
         for _ in range(samples):
             outcome = self.simulate_hand(hand, table, players)
             results[outcome] += 1
-            
+        
         # Convert to percentages
         total = sum(results)
-        return [result / total for result in total] if total > 0 else [0.33, 0.33, 0.34]
-        
+        return [result / total for result in results] if total > 0 else [0.33, 0.33, 0.34]
+
     def make_decision(self, win_prob: float, pot_odds: float = 0.2) -> str:
         """Make decision based on win probability"""
         if win_prob < 0.3:  # Less than 30% chance to win

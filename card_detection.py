@@ -2,11 +2,10 @@
 """
 Card Detection Module
 """
-
 import cv2
 import numpy as np
 import os
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from logger import Logger
 
 class CardDetector:
@@ -16,7 +15,45 @@ class CardDetector:
         self.ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
         self.card_templates = self._load_card_templates()
         self.logger = Logger()
-    
+
+    def _ensure_color_image(self, img):
+        """Ensure image is in BGR format (3 channels)"""
+        if img is None:
+            return None
+        
+        if len(img.shape) == 2:
+            # Grayscale image, convert to BGR
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif len(img.shape) == 3 and img.shape[2] == 4:
+            # RGBA image, convert to BGR
+            return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        elif len(img.shape) == 3 and img.shape[2] == 3:
+            # Already BGR, return as is
+            return img
+        else:
+            # Unknown format, try to convert
+            try:
+                return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            except:
+                self.logger.log(f"Cannot convert image with shape {img.shape}", level="ERROR")
+                return None
+
+    def _ensure_grayscale_image(self, img):
+        """Ensure image is in grayscale format (1 channel)"""
+        if img is None:
+            return None
+        
+        if len(img.shape) == 2:
+            # Already grayscale, return as is
+            return img
+        elif len(img.shape) == 3:
+            # Color image, convert to grayscale
+            return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            # Unknown format, return None
+            self.logger.log(f"Cannot convert image with shape {img.shape} to grayscale", level="ERROR")
+            return None
+
     def _load_card_templates(self):
         """Load card templates for detection"""
         templates = {}
@@ -42,13 +79,17 @@ class CardDetector:
                         templates[card_name] = template
         
         return templates
-    
-    
+
     def get_player_cards(self, img, screen_regions, game_window):
         """Extract and identify player's hole cards"""
         player_cards = []
-        
         self.logger.log("Attempting to detect player cards")
+        
+        # Ensure input image is in proper format
+        img = self._ensure_color_image(img)
+        if img is None:
+            self.logger.log("Failed to process input image", level="ERROR")
+            return player_cards
         
         # Get card regions
         x1, y1, w1, h1 = screen_regions['player_card1']
@@ -99,16 +140,22 @@ class CardDetector:
             player_cards.append(card2)
         
         return player_cards
+
     def get_community_cards(self, img, screen_regions, game_window):
         """Extract and identify community cards"""
         community_cards = []
+        
+        # Ensure input image is in proper format
+        img = self._ensure_color_image(img)
+        if img is None:
+            self.logger.log("Failed to process input image", level="ERROR")
+            return community_cards
         
         # Check flop cards
         for i, coords in enumerate(screen_regions['flop_cards']):
             x, y, w, h = coords
             rel_x = x - game_window['left']
             rel_y = y - game_window['top']
-            
             card_img = img[rel_y:rel_y+h, rel_x:rel_x+w]
             card = self._detect_card(card_img, "flop")
             if card:
@@ -133,6 +180,7 @@ class CardDetector:
             community_cards.append(river_card)
         
         return community_cards
+
     def _detect_card(self, card_image, card_type="player"):
         """Detect card using improved color and shape analysis"""
         if card_image is None or card_image.size == 0:
@@ -140,6 +188,12 @@ class CardDetector:
             return None
         
         self.logger.log(f"Detecting {card_type} card, image size: {card_image.shape}")
+        
+        # Ensure card image is in BGR format
+        card_image = self._ensure_color_image(card_image)
+        if card_image is None:
+            self.logger.log(f"Failed to process {card_type} card image", level="ERROR")
+            return None
         
         # Convert to different color spaces
         hsv = cv2.cvtColor(card_image, cv2.COLOR_BGR2HSV)
@@ -161,8 +215,8 @@ class CardDetector:
         
         red_pixels = np.sum(red_mask > 0)
         black_pixels = np.sum(black_mask > 0)
-        
         is_red = red_pixels > black_pixels
+        
         self.logger.log(f"Card color analysis - Red pixels: {red_pixels}, Black pixels: {black_pixels}, Is red: {is_red}")
         
         # Detect rank using contour detection
@@ -172,8 +226,8 @@ class CardDetector:
         if contours:
             largest_contour = max(contours, key=cv2.contourArea)
             x, y, w, h = cv2.boundingRect(largest_contour)
-            
             rank_roi = gray[y:y+h, x:x+w]
+            
             self.logger.save_image(rank_roi, f'debug_rank_{card_type}.png', f"Detected rank region for {card_type} card")
             
             rank = self._detect_rank_from_contour(largest_contour, rank_roi)
@@ -189,9 +243,8 @@ class CardDetector:
         
         # Fallback to template matching
         self.logger.log("Contour detection failed, falling back to template matching")
-        return self._fallback_template_matching(card_image, card_type)    
+        return self._fallback_template_matching(card_image, card_type)
 
-    
     def _detect_rank_from_contour(self, contour, roi):
         """Detect card rank from contour properties"""
         # Get contour properties
@@ -208,10 +261,14 @@ class CardDetector:
         if roi.size == 0:
             return None
         
+        # Ensure ROI is in proper format for processing
+        roi = self._ensure_grayscale_image(roi)
+        if roi is None:
+            return None
+        
         # Try to find the rank by looking for specific patterns
-        # Convert to grayscale and threshold
-        gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray_roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # Threshold the ROI
+        _, thresh = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         
         # Find contours in the ROI
         try:
@@ -232,44 +289,44 @@ class CardDetector:
             # Ace: Usually has a tall, thin shape
             if inner_aspect < 0.5 and ch > cw * 1.5:
                 return 'A'
-            
             # King: Often has a complex, wide shape
             elif inner_aspect > 1.2 and inner_area > 300:
                 return 'K'
-            
             # Queen: Similar to king but often more compact
             elif inner_aspect > 0.8 and inner_area > 200 and inner_area <= 300:
                 return 'Q'
-            
             # Jack: Often has a simple, compact shape
             elif inner_aspect > 0.6 and inner_area > 100 and inner_area <= 200:
                 return 'J'
-            
             # 10: Wider aspect ratio
             elif inner_aspect > 1.0 and inner_area > 150 and inner_area <= 250:
                 return 'T'
-            
             # For other numbers, return None to let template matching handle it
             return None
             
         except Exception as e:
             print(f"Debug: Error in inner contour analysis: {e}")
             return None
-    
+
     def _detect_suit_from_color(self, hsv, is_red):
         """Detect suit from color analysis"""
         if is_red:
             return 'h'  # Default to hearts
         else:
             return 's'  # Default to spades
-    
+
     def _fallback_template_matching(self, card_image, card_type):
         """Fallback template matching with better threshold and multiple methods"""
         if not self.card_templates:
             print("Debug: No card templates loaded!")
             return None
         
-        gray_card = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
+        # Ensure card image is grayscale for template matching
+        gray_card = self._ensure_grayscale_image(card_image)
+        if gray_card is None:
+            print("Debug: Failed to convert card image to grayscale")
+            return None
+        
         best_match = None
         best_confidence = 0
         best_method = None
@@ -311,7 +368,7 @@ class CardDetector:
                                 best_match = card_name
                                 best_method = method_name
                                 print(f"Debug: New best match: {card_name} with {method_name} confidence {max_val:.3f}")
-                    
+                                
                 except Exception as e:
                     print(f"Debug: Error matching {card_name}: {e}")
                     continue
@@ -324,7 +381,7 @@ class CardDetector:
         else:
             print(f"Debug: No match found above threshold (confidence: {best_confidence:.3f})")
             return None
-    
+
     def validate_cards(self, player_cards: List[str], community_cards: List[str]) -> Tuple[List[str], List[str]]:
         """Validate and filter cards to remove duplicates and invalid cards"""
         print(f"Debug: Raw player cards: {player_cards}")
@@ -337,36 +394,12 @@ class CardDetector:
         print(f"Debug: Valid player cards: {valid_player_cards}")
         print(f"Debug: Valid community cards: {valid_community_cards}")
         
-        # Remove duplicates while preserving order
-        seen_cards = set()
-        unique_player_cards = []
-        for card in valid_player_cards:
-            if card not in seen_cards:
-                unique_player_cards.append(card)
-                seen_cards.add(card)
-        
-        # For community cards, also check against player cards but be more lenient
-        unique_community_cards = []
-        for card in valid_community_cards:
-            # Only filter out exact duplicates, not similar cards
-            if card not in seen_cards:
-                unique_community_cards.append(card)
-                seen_cards.add(card)
-        
-        print(f"Debug: Final player cards: {unique_player_cards}")
-        print(f"Debug: Final community cards: {unique_community_cards}")
-        
-        return unique_player_cards, unique_community_cards
+        return valid_player_cards, valid_community_cards
 
     def _is_valid_card(self, card: str) -> bool:
         """Check if a card string is valid"""
         if not card or len(card) != 2:
             return False
         
-        rank_char = card[0]
-        suit_char = card[1]
-        
-        valid_ranks = ['A', 'K', 'Q', 'J', 'T', '2', '3', '4', '5', '6', '7', '8', '9']
-        valid_suits = ['s', 'h', 'd', 'c']
-        
-        return rank_char in valid_ranks and suit_char in valid_suits
+        rank, suit = card[0], card[1]
+        return rank in self.ranks and suit in self.suits
