@@ -2,8 +2,9 @@
 """
 Main Bot Class for Governor of Poker
 """
-
+import random
 import cv2
+import numpy as np
 import pyautogui
 import time
 import json
@@ -12,11 +13,8 @@ import traceback
 from logger import Logger
 from card_detection import CardDetector
 from game_simulation import GameSimulator
-from utils import WindowDetector, ScreenshotManager, GameWindowCapture
-from logger import Logger
+from utils import GameWindowCapture, WindowDetector, ScreenshotManager
 
-
-# Update the GovernorOfPokerBot class
 class GovernorOfPokerBot:
     def __init__(self, calibration_file='screen_calibration.json', logger=None):
         """Initialize the bot with calibration data"""
@@ -43,15 +41,44 @@ class GovernorOfPokerBot:
         self.card_detector = CardDetector()
         self.game_simulator = GameSimulator()
         
+        # Initialize simple odds calculator (fallback)
+        self.odds_calculator = SimpleOddsCalculator()
+        
         # Safety settings
         pyautogui.PAUSE = 0.5
         pyautogui.FAILSAFE = True
-        
         self.logger.log("Bot initialized successfully")
-    
+
+    def _setup_from_calibration(self):
+        """Setup from calibration data"""
+        self.game_window = self.calibration_data['game_window']
+        self.screen_regions = self.calibration_data['screen_regions']
+
+    def _setup_defaults(self):
+        """Setup default values"""
+        self.game_window = {
+            'left': 0,
+            'top': 40,
+            'width': 1920,
+            'height': 1000
+        }
+        
+        self.screen_regions = {
+            'player_card1': (899, 633, 60, 80),
+            'player_card2': (973, 623, 60, 80),
+            'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
+            'turn_card': (780, 450, 70, 90),
+            'river_card': (860, 450, 70, 90),
+            'action_buttons': {
+                'fold': (1230, 950, 120, 60),
+                'check': (1350, 950, 120, 60),
+                'bet': (1470, 950, 120, 60)
+            }
+        }
+
     def play_hand(self):
-        """Main function to play one hand"""
-        print("Starting new hand...")
+        """Stage-aware hand playing method that can handle any point in the hand"""
+        print("Starting stage-aware hand analysis...")
         
         # Take screenshot
         img = self.screenshot_manager.capture_game_window()
@@ -59,139 +86,704 @@ class GovernorOfPokerBot:
             print("Failed to take screenshot")
             return
         
-        # Try normal card detection first
-        player_cards = self.card_detector.get_player_cards(img, self.screen_regions, self.game_window)
-        community_cards = self.card_detector.get_community_cards(img, self.screen_regions, self.game_window)
-        
-        # Check if detection was successful
-        detection_successful = (
-            len(player_cards) >= 2 and 
-            all(player_cards) and 
-            all(self.card_detector._is_valid_card(card) for card in player_cards)
-        )
-        
-        if not detection_successful:
-            print("Normal card detection failed or returned invalid cards, using simple detection...")
-            player_cards = self.simple_card_detection(img)
-            community_cards = []  # Skip community cards for now
-            
-            # Check if simple detection was successful
-            if len(player_cards) < 2 or not all(player_cards):
-                print("Could not detect player cards even with simple detection")
-                return
-        
-        print(f"Player cards: {player_cards}")
-        print(f"Community cards: {community_cards}")
-        
-        # Run simulation
+        # Detect current game stage and available cards
         try:
-            win_prob, lose_prob, tie_prob = self.game_simulator.monte_carlo_simulation(
-                player_cards, community_cards
-            )
-            
-            # Log simulation results
-            self.logger.log_simulation_results(win_prob, lose_prob, tie_prob)
-            
-            # Print basic info to console
-            print(f"Win probability: {win_prob:.2%}")
-            print(f"Lose probability: {lose_prob:.2%}")
-            print(f"Tie probability: {tie_prob:.2%}")
-            
-            # Make decision
-            decision = self.game_simulator.make_decision(win_prob)
-            self.logger.log_decision(decision)
-            
-            # Print basic info to console
-            print(f"Decision: {decision}")
-            
-            # Execute decision
-            self._click_button(decision)
-            
-        except Exception as e:
-            self.logger.log_error("Error in simulation", e)
-            traceback.print_exc()
-            print("Using fallback decision")
-            
-            # Better fallback decision based on hand strength
-            if self._is_strong_hand(player_cards):
-                print("Strong hand detected, betting")
-                self.logger.log_decision("bet (fallback)")
-                self._click_button('bet')
-            elif self._is_weak_hand(player_cards):
-                print("Weak hand detected, checking")
-                self.logger.log_decision("check (fallback)")
-                self._click_button('check')
-            else:
-                print("Medium hand, checking")
-                self.logger.log_decision("check (fallback)")
-                self._click_button('check')
-            """Main function to play one hand"""
-            print("Starting new hand...")
-            
-            # Take screenshot
-            img = self.screenshot_manager.capture_game_window()
-            if img is None:
-                print("Failed to take screenshot")
-                return
-            
-            # Try normal card detection first
             player_cards = self.card_detector.get_player_cards(img, self.screen_regions, self.game_window)
             community_cards = self.card_detector.get_community_cards(img, self.screen_regions, self.game_window)
             
-            # If normal detection fails or returns invalid cards, use simple detection
-            if len(player_cards) < 2 or not all(self.card_detector._is_valid_card(card) for card in player_cards):
-                print("Normal card detection failed or returned invalid cards, using simple detection...")
-                player_cards = self.simple_card_detection(img)
-                community_cards = []  # Skip community cards for now
+            # Validate and clean cards
+            player_cards = self._validate_and_clean_cards(player_cards)
+            community_cards = self._validate_and_clean_cards(community_cards)
             
+            # Determine current game stage
+            game_stage = self._determine_game_stage(community_cards)
+            print(f"Detected game stage: {game_stage}")
             print(f"Player cards: {player_cards}")
             print(f"Community cards: {community_cards}")
             
-            if len(player_cards) < 2 or not all(player_cards):  # Check for None values
-                print("Could not detect player cards")
+            # Validate that we have enough information
+            if len(player_cards) < 2:
+                print("Insufficient player cards detected")
                 return
             
-            # Run simulation
-            try:
-                win_prob, lose_prob, tie_prob = self.game_simulator.monte_carlo_simulation(
-                    player_cards, community_cards
-                )
-                
-                # Log simulation results
-                self.logger.log_simulation_results(win_prob, lose_prob, tie_prob)
-                
-                # Print basic info to console
-                print(f"Win probability: {win_prob:.2%}")
-                print(f"Lose probability: {lose_prob:.2%}")
-                print(f"Tie probability: {tie_prob:.2%}")
-                
-                # Make decision
-                decision = self.game_simulator.make_decision(win_prob)
+            # Stage-specific analysis and decision making
+            if game_stage == "preflop":
+                decision = self._handle_preflop(player_cards, community_cards)
+            elif game_stage == "flop":
+                decision = self._handle_flop(player_cards, community_cards)
+            elif game_stage == "turn":
+                decision = self._handle_turn(player_cards, community_cards)
+            elif game_stage == "river":
+                decision = self._handle_river(player_cards, community_cards)
+            else:
+                print(f"Unknown game stage: {game_stage}")
+                decision = self._make_safe_decision(player_cards, community_cards)
+            
+            # Execute decision
+            if decision:
+                print(f"Stage-based decision: {decision}")
                 self.logger.log_decision(decision)
-                
-                # Print basic info to console
-                print(f"Decision: {decision}")
-                
-                # Execute decision
                 self._click_button(decision)
+            else:
+                print("No decision made, using fallback")
+                self._make_safe_decision(player_cards, community_cards)
                 
-            except Exception as e:
-                self.logger.log_error("Error in simulation", e)
-                print("Using fallback decision")
-                
-                # Better fallback decision based on hand strength
-                if self._is_strong_hand(player_cards):
-                    print("Strong hand detected, betting")
-                    self.logger.log_decision("bet (fallback)")
-                    self._click_button('bet')
-                elif self._is_weak_hand(player_cards):
-                    print("Weak hand detected, checking")
-                    self.logger.log_decision("check (fallback)")
-                    self._click_button('check')
+        except Exception as e:
+            self.logger.log_error(f"Error in stage-aware play_hand: {e}", e)
+            traceback.print_exc()
+            print("Stage-aware analysis failed, using fallback")
+            
+            # Emergency fallback
+            try:
+                player_cards = self.simple_card_detection(img)
+                if len(player_cards) >= 2:
+                    emergency_decision = self._make_emergency_decision(player_cards)
+                    self._click_button(emergency_decision)
                 else:
-                    print("Medium hand, checking")
-                    self.logger.log_decision("check (fallback)")
                     self._click_button('check')
+            except:
+                self._click_button('check')
+
+    def _determine_game_stage(self, community_cards):
+        """Determine the current stage of the game based on community cards"""
+        if not community_cards:
+            return "preflop"
+        elif len(community_cards) == 3:
+            return "flop"
+        elif len(community_cards) == 4:
+            return "turn"
+        elif len(community_cards) == 5:
+            return "river"
+        else:
+            # Handle cases where we might have partial detection
+            if community_cards:
+                # Check which community card positions are filled
+                flop_count = sum(1 for card in community_cards[:3] if card)
+                if flop_count == 3:
+                    if len(community_cards) >= 4 and community_cards[3]:
+                        if len(community_cards) >= 5 and community_cards[4]:
+                            return "river"
+                        else:
+                            return "turn"
+                    else:
+                        return "flop"
+            return "preflop"
+
+    def _handle_preflop(self, player_cards, community_cards):
+        """Handle preflop decision making"""
+        print("=== PREFLOP ANALYSIS ===")
+        
+        # Preflop is all about hole cards and position
+        hand_strength = self._evaluate_preflop_hand(player_cards)
+        
+        # Calculate preflop odds (simplified - mainly based on hand strength)
+        if hand_strength >= 8:  # Premium hands (AA, KK, QQ, AKs)
+            win_prob = 0.75
+            action = 'bet'
+        elif hand_strength >= 6:  # Strong hands (JJ, TT, AQ, AK)
+            win_prob = 0.60
+            action = 'bet' if random.random() > 0.3 else 'call'
+        elif hand_strength >= 4:  # Medium hands (99-77, AJ, KQ)
+            win_prob = 0.45
+            action = 'call' if random.random() > 0.5 else 'check'
+        elif hand_strength >= 2:  # Weak hands (low pairs, weak aces)
+            win_prob = 0.35
+            action = 'check'
+        else:  # Very weak hands
+            win_prob = 0.25
+            action = 'fold'
+        
+        print(f"Preflop hand strength: {hand_strength}/10")
+        print(f"Estimated win probability: {win_prob:.2%}")
+        print(f"Recommended action: {action}")
+        
+        return action
+
+    def _handle_flop(self, player_cards, community_cards):
+        """Handle flop decision making"""
+        print("=== FLOP ANALYSIS ===")
+        
+        # Evaluate hand with flop cards
+        hand_strength = self._evaluate_postflop_hand(player_cards, community_cards)
+        
+        # Calculate odds using simple calculator
+        win_prob, lose_prob, tie_prob = self.odds_calculator.calculate_simple_odds(
+            player_cards, community_cards
+        )
+        
+        print(f"Flop hand strength: {hand_strength}/10")
+        print(f"Calculated odds - Win: {win_prob:.2%}, Lose: {lose_prob:.2%}, Tie: {tie_prob:.2%}")
+        
+        # Flop-specific decision making
+        if win_prob > 0.70:
+            action = 'bet'  # Very strong hand, bet for value
+        elif win_prob > 0.50:
+            action = 'bet' if random.random() > 0.4 else 'call'  # Strong hand, sometimes bet
+        elif win_prob > 0.35:
+            action = 'call' if random.random() > 0.6 else 'check'  # Drawing hand
+        else:
+            action = 'fold' if random.random() > 0.3 else 'check'  # Weak hand
+        
+        print(f"Flop decision: {action}")
+        return action
+
+    def _handle_turn(self, player_cards, community_cards):
+        """Handle turn decision making"""
+        print("=== TURN ANALYSIS ===")
+        
+        # Evaluate hand with turn card
+        hand_strength = self._evaluate_postflop_hand(player_cards, community_cards)
+        
+        # Calculate odds
+        win_prob, lose_prob, tie_prob = self.odds_calculator.calculate_simple_odds(
+            player_cards, community_cards
+        )
+        
+        print(f"Turn hand strength: {hand_strength}/10")
+        print(f"Calculated odds - Win: {win_prob:.2%}, Lose: {lose_prob:.2%}, Tie: {tie_prob:.2%}")
+        
+        # Turn-specific decision making (more conservative than flop)
+        if win_prob > 0.75:
+            action = 'bet'  # Very strong hand
+        elif win_prob > 0.55:
+            action = 'call'  # Good hand, but more conservative
+        elif win_prob > 0.40:
+            action = 'check'  # Marginal hand
+        else:
+            action = 'fold'  # Weak hand
+        
+        print(f"Turn decision: {action}")
+        return action
+
+    def _handle_river(self, player_cards, community_cards):
+        """Handle river decision making"""
+        print("=== RIVER ANALYSIS ===")
+        
+        # Final hand evaluation
+        hand_strength = self._evaluate_postflop_hand(player_cards, community_cards)
+        final_hand = self._identify_final_hand(player_cards, community_cards)
+        
+        # Calculate final odds
+        win_prob, lose_prob, tie_prob = self.odds_calculator.calculate_simple_odds(
+            player_cards, community_cards
+        )
+        
+        print(f"River hand strength: {hand_strength}/10")
+        print(f"Final hand: {final_hand}")
+        print(f"Final odds - Win: {win_prob:.2%}, Lose: {lose_prob:.2%}, Tie: {tie_prob:.2%}")
+        
+        # River-specific decision making (most conservative)
+        if win_prob > 0.80:
+            action = 'bet'  # Nut hand, bet for value
+        elif win_prob > 0.60:
+            action = 'bet' if random.random() > 0.5 else 'call'  # Strong hand
+        elif win_prob > 0.45:
+            action = 'call' if random.random() > 0.7 else 'check'  # Medium hand
+        else:
+            action = 'check'  # Weak hand, just check or fold
+        
+        print(f"River decision: {action}")
+        return action
+
+    def _evaluate_preflop_hand(self, player_cards):
+        """Evaluate preflop hand strength (0-10 scale)"""
+        if len(player_cards) < 2:
+            return 0
+        
+        rank1, suit1 = player_cards[0][0], player_cards[0][1]
+        rank2, suit2 = player_cards[1][0], player_cards[1][1]
+        
+        # Premium hands
+        premium_pairs = ['AA', 'KK', 'QQ']
+        premium_ak = ['AK']
+        
+        # Strong hands
+        strong_pairs = ['JJ', 'TT']
+        strong_ak = ['AQ', 'AJ']
+        
+        # Medium hands
+        medium_pairs = ['99', '88', '77']
+        medium_hands = ['KQ', 'KJ', 'QJ']
+        
+        # Check for pairs
+        if rank1 == rank2:
+            hand = f"{rank1}{rank2}"
+            if hand in premium_pairs:
+                return 10
+            elif hand in strong_pairs:
+                return 8
+            elif hand in medium_pairs:
+                return 6
+            else:
+                return 4  # Low pairs
+        
+        # Check for suited cards
+        is_suited = suit1 == suit2
+        
+        # Check for high card hands
+        high_cards = ['A', 'K', 'Q', 'J']
+        if rank1 in high_cards and rank2 in high_cards:
+            # Sort ranks for consistent evaluation
+            ranks = sorted([rank1, rank2], key=lambda x: self._get_rank_value(x), reverse=True)
+            hand = f"{ranks[0]}{ranks[1]}"
+            
+            if hand in premium_ak:
+                return 9 if is_suited else 8
+            elif hand in strong_ak:
+                return 7 if is_suited else 6
+            elif hand in medium_hands:
+                return 5 if is_suited else 4
+            else:
+                return 3 if is_suited else 2
+        
+        # Ace with any card
+        if 'A' in [rank1, rank2]:
+            return 3 if is_suited else 2
+        
+        # Default weak hands
+        return 1
+
+    def _evaluate_postflop_hand(self, player_cards, community_cards):
+        """Evaluate postflop hand strength (0-10 scale)"""
+        try:
+            # Use the simple odds calculator's hand evaluation
+            return self.odds_calculator._evaluate_hand_strength(player_cards, community_cards)
+        except:
+            # Fallback to basic evaluation
+            return self._basic_hand_evaluation(player_cards, community_cards)
+
+    def _basic_hand_evaluation(self, player_cards, community_cards):
+        """Basic hand evaluation as fallback"""
+        all_cards = player_cards + community_cards
+        
+        # Count ranks and suits
+        rank_counts = {}
+        suit_counts = {}
+        
+        for card in all_cards:
+            if len(card) >= 2:
+                rank = card[0]
+                suit = card[1]
+                rank_counts[rank] = rank_counts.get(rank, 0) + 1
+                suit_counts[suit] = suit_counts.get(suit, 0) + 1
+        
+        # Check for pairs, sets, etc.
+        pairs = sum(1 for count in rank_counts.values() if count == 2)
+        three_of_kind = sum(1 for count in rank_counts.values() if count == 3)
+        four_of_kind = sum(1 for count in rank_counts.values() if count == 4)
+        
+        # Check for flush
+        is_flush = max(suit_counts.values()) >= 5
+        
+        # Basic strength assessment
+        if four_of_kind:
+            return 9
+        elif three_of_kind and pairs >= 1:
+            return 8
+        elif is_flush:
+            return 7
+        elif three_of_kind:
+            return 6
+        elif pairs >= 2:
+            return 5
+        elif pairs == 1:
+            return 3
+        else:
+            # High card
+            high_ranks = ['A', 'K', 'Q', 'J']
+            high_cards = sum(1 for card in player_cards if card[0] in high_ranks)
+            return min(high_cards, 2)
+
+    def _identify_final_hand(self, player_cards, community_cards):
+        """Identify the final hand type (for river stage)"""
+        all_cards = player_cards + community_cards
+        
+        # Count ranks and suits
+        rank_counts = {}
+        suit_counts = {}
+        
+        for card in all_cards:
+            if len(card) >= 2:
+                rank = card[0]
+                suit = card[1]
+                rank_counts[rank] = rank_counts.get(rank, 0) + 1
+                suit_counts[suit] = suit_counts.get(suit, 0) + 1
+        
+        # Check for different hand types
+        if 4 in rank_counts.values():
+            return "Four of a Kind"
+        elif 3 in rank_counts.values() and 2 in rank_counts.values():
+            return "Full House"
+        elif max(suit_counts.values()) >= 5:
+            return "Flush"
+        elif 3 in rank_counts.values():
+            return "Three of a Kind"
+        elif list(rank_counts.values()).count(2) >= 2:
+            return "Two Pair"
+        elif 2 in rank_counts.values():
+            return "One Pair"
+        else:
+            return "High Card"
+
+    def _get_rank_value(self, rank):
+        """Get numerical value of rank"""
+        rank_map = {'A': 14, 'K': 13, 'Q': 12, 'J': 11, 'T': 10}
+        return rank_map.get(rank, int(rank) if rank.isdigit() else 14)
+
+    def _make_safe_decision(self, player_cards, community_cards):
+        """Make a safe decision based on current situation"""
+        game_stage = self._determine_game_stage(community_cards)
+        
+        # Very conservative decisions
+        if game_stage == "preflop":
+            # Only play very strong hands preflop
+            hand_strength = self._evaluate_preflop_hand(player_cards)
+            if hand_strength >= 6:
+                return 'call'
+            else:
+                return 'fold'
+        else:
+            # Postflop - be more conservative
+            win_prob, _, _ = self.odds_calculator.calculate_simple_odds(player_cards, community_cards)
+            if win_prob > 0.50:
+                return 'call'
+            else:
+                return 'check'
+
+    def _make_emergency_decision(self, player_cards):
+        """Emergency decision when everything else fails"""
+        if len(player_cards) >= 2:
+            # Check for any pair or high cards
+            if player_cards[0][0] == player_cards[1][0]:  # Pair
+                return 'call'
+            elif 'A' in [player_cards[0][0], player_cards[1][0]]:  # Ace
+                return 'call'
+        
+        return 'check'
+        
+    def _validate_and_clean_cards(self, cards):
+        """Validate and clean card list"""
+        if not cards:
+            return []
+        
+        cleaned_cards = []
+        seen_cards = set()
+        
+        for card in cards:
+            # Check if card is valid
+            if card and self.card_detector._is_valid_card(card):
+                # Check for duplicates
+                if card not in seen_cards:
+                    cleaned_cards.append(card)
+                    seen_cards.add(card)
+                else:
+                    print(f"Duplicate card detected and removed: {card}")
+            else:
+                print(f"Invalid card detected and removed: {card}")
+        
+        return cleaned_cards
+
+    def make_enhanced_decision(self, win_prob: float, lose_prob: float, tie_prob: float, pot_odds: float = 0.2) -> str:
+        """Make enhanced decision based on comprehensive probability analysis"""
+        
+        # Calculate expected value
+        expected_value = win_prob * 1 - lose_prob * 1 + tie_prob * 0
+        
+        # Adjust for pot odds
+        adjusted_ev = expected_value - pot_odds
+        
+        # Enhanced decision logic
+        if win_prob < 0.25:
+            return 'fold'  # Very weak hand
+        elif win_prob < 0.35:
+            return 'check' if adjusted_ev < 0 else 'call'  # Weak hand
+        elif win_prob < 0.45:
+            return 'check'  # Marginal hand
+        elif win_prob < 0.55:
+            return 'call' if adjusted_ev > 0 else 'check'  # Medium hand
+        elif win_prob < 0.70:
+            return 'bet' if adjusted_ev > 0.1 else 'call'  # Strong hand
+        else:
+            return 'bet'  # Very strong hand
+
+    def simple_card_detection(self, img):
+        """Simple fallback card detection using basic template matching"""
+        try:
+            # Get player card regions
+            x1, y1, w1, h1 = self.screen_regions['player_card1']
+            x2, y2, w2, h2 = self.screen_regions['player_card2']
+            
+            # Convert to relative coordinates
+            rel_x1 = x1 - self.game_window['left']
+            rel_y1 = y1 - self.game_window['top']
+            rel_x2 = x2 - self.game_window['left']
+            rel_y2 = y2 - self.game_window['top']
+            
+            # Extract card images
+            card1_img = img[rel_y1:rel_y1+h1, rel_x1:rel_x1+w1]
+            card2_img = img[rel_y2:rel_y2+h2, rel_x2:rel_x2+w2]
+            
+            # Simple color-based detection
+            cards = []
+            
+            for i, card_img in enumerate([card1_img, card2_img]):
+                try:
+                    # Convert to HSV
+                    hsv = cv2.cvtColor(card_img, cv2.COLOR_BGR2HSV)
+                    
+                    # Detect red/black
+                    red_mask = cv2.inRange(hsv, np.array([0, 100, 100]), np.array([10, 255, 255]))
+                    red_pixels = np.sum(red_mask > 0)
+                    
+                    is_red = red_pixels > 500
+                    
+                    # Simple rank detection based on image brightness patterns
+                    gray = cv2.cvtColor(card_img, cv2.COLOR_BGR2GRAY)
+                    brightness = np.mean(gray)
+                    
+                    # Very basic rank estimation (this is a fallback!)
+                    if brightness > 180:
+                        rank = 'A'  # Ace cards are usually brighter
+                    elif brightness > 160:
+                        rank = 'K'
+                    elif brightness > 140:
+                        rank = 'Q'
+                    elif brightness > 120:
+                        rank = 'J'
+                    else:
+                        rank = '2'  # Default to low card
+                    
+                    suit = 'h' if is_red else 's'
+                    cards.append(f"{rank}{suit}")
+                    
+                except Exception as e:
+                    print(f"Simple detection failed for card {i}: {e}")
+                    cards.append(None)
+            
+            return cards
+            
+        except Exception as e:
+            print(f"Simple card detection error: {e}")
+            return []
+
+    def _is_strong_hand(self, cards):
+        """Check if hand is strong (pairs, high cards, etc.)"""
+        if not cards or len(cards) < 2:
+            return False
+        
+        # Check for pairs
+        if cards[0][0] == cards[1][0]:
+            return True
+        
+        # Check for high cards
+        high_ranks = ['A', 'K', 'Q', 'J']
+        if cards[0][0] in high_ranks and cards[1][0] in high_ranks:
+            return True
+        
+        # Check for Ace with high card
+        if 'A' in [cards[0][0], cards[1][0]]:
+            other_card = cards[1] if cards[0][0] == 'A' else cards[0]
+            if other_card[0] in ['K', 'Q', 'J']:
+                return True
+        
+        return False
+
+    def _is_weak_hand(self, cards):
+        """Check if hand is weak"""
+        if not cards or len(cards) < 2:
+            return True
+        
+        # Check for low cards
+        low_ranks = ['2', '3', '4', '5', '6', '7']
+        weak_count = sum(1 for card in cards if card[0] in low_ranks)
+        
+        return weak_count >= 2
+
+    def _click_button(self, action):
+        """Click the specified action button"""
+        if action in self.screen_regions['action_buttons']:
+            x, y, w, h = self.screen_regions['action_buttons'][action]
+            center_x = x + w // 2
+            center_y = y + h // 2
+            
+            print(f"Clicking {action} button at ({center_x}, {center_y})")
+            pyautogui.click(center_x, center_y)
+            
+            # Verify the click
+            time.sleep(0.5)
+            return True
+        else:
+            print(f"Unknown action: {action}")
+            return False
+
+    def test_regions(self):
+        """Test screen regions"""
+        print("Testing screen regions...")
+        img = self.screenshot_manager.capture_game_window()
+        if img is None:
+            print("Failed to capture screen")
+            return
+        
+        # Test player card regions
+        for region_name, (x, y, w, h) in [
+            ('player_card1', self.screen_regions['player_card1']),
+            ('player_card2', self.screen_regions['player_card2'])
+        ]:
+            rel_x = x - self.game_window['left']
+            rel_y = y - self.game_window['top']
+            card_img = img[rel_y:rel_y+h, rel_x:rel_x+w]
+            cv2.imwrite(f'test_{region_name}.png', card_img)
+            print(f"Saved {region_name} region to test_{region_name}.png")
+
+    def test_card_detection(self):
+        """Test card detection"""
+        print("Testing card detection...")
+        img = self.screenshot_manager.capture_game_window()
+        if img is None:
+            print("Failed to capture screen")
+            return
+        
+        player_cards = self.card_detector.get_player_cards(img, self.screen_regions, self.game_window)
+        community_cards = self.card_detector.get_community_cards(img, self.screen_regions, self.game_window)
+        
+        print(f"Detected player cards: {player_cards}")
+        print(f"Detected community cards: {community_cards}")
+
+    def calibrate_screen(self):
+        """Calibrate screen regions"""
+        print("Screen calibration not implemented yet")
+
+    def preview_game_window(self):
+        """Preview game window"""
+        print("Previewing game window...")
+        img = self.screenshot_manager.capture_game_window()
+        if img is None:
+            print("Failed to capture screen")
+            return
+        
+        cv2.imshow('Game Window', img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+    def run_bot(self, hands_to_play=10):
+        """Run the bot continuously"""
+        print(f"Running bot for {hands_to_play} hands...")
+        
+        for i in range(hands_to_play):
+            print(f"\n=== Hand {i+1}/{hands_to_play} ===")
+            self.play_hand()
+            
+            # Wait between hands
+            time.sleep(2)
+
+
+class SimpleOddsCalculator:
+    """Simple odds calculator for fallback use"""
+    
+    def __init__(self):
+        self.ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
+        self.rank_values = {'A': 14, 'K': 13, 'Q': 12, 'J': 11, 'T': 10}
+        
+    def calculate_simple_odds(self, player_cards, community_cards):
+        """Calculate simple odds based on hand strength"""
+        try:
+            # Basic hand strength evaluation
+            hand_strength = self._evaluate_hand_strength(player_cards, community_cards)
+            
+            # Convert strength to probabilities
+            if hand_strength >= 8:  # Very strong hand
+                return 0.85, 0.12, 0.03
+            elif hand_strength >= 6:  # Strong hand
+                return 0.70, 0.25, 0.05
+            elif hand_strength >= 4:  # Medium hand
+                return 0.50, 0.45, 0.05
+            elif hand_strength >= 2:  # Weak hand
+                return 0.30, 0.65, 0.05
+            else:  # Very weak hand
+                return 0.15, 0.80, 0.05
+                
+        except Exception as e:
+            print(f"Simple odds calculation error: {e}")
+            return 0.33, 0.64, 0.03  # Default probabilities
+    
+    def _evaluate_hand_strength(self, player_cards, community_cards):
+        """Evaluate hand strength on a scale of 0-10"""
+        if not player_cards or len(player_cards) < 2:
+            return 0
+        
+        all_cards = player_cards + community_cards
+        
+        # Get rank values
+        ranks = []
+        suits = []
+        for card in all_cards:
+            if len(card) >= 2:
+                rank_char = card[0]
+                suit_char = card[1]
+                
+                # Get rank value
+                rank_value = self.rank_values.get(rank_char, int(rank_char) if rank_char.isdigit() else 14)
+                ranks.append(rank_value)
+                suits.append(suit_char)
+        
+        # Check for pairs, three of a kind, etc.
+        rank_counts = {}
+        for rank in ranks:
+            rank_counts[rank] = rank_counts.get(rank, 0) + 1
+        
+        # Check for flush
+        suit_counts = {}
+        for suit in suits:
+            suit_counts[suit] = suit_counts.get(suit, 0) + 1
+        
+        max_suit_count = max(suit_counts.values()) if suit_counts else 0
+        is_flush = max_suit_count >= 5
+        
+        # Check for straight
+        sorted_ranks = sorted(set(ranks))
+        is_straight = False
+        straight_high = 0
+        
+        # Check for regular straight
+        for i in range(len(sorted_ranks) - 4):
+            if sorted_ranks[i+4] - sorted_ranks[i] == 4:
+                is_straight = True
+                straight_high = sorted_ranks[i+4]
+                break
+        
+        # Check for A-2-3-4-5 straight
+        if set([14, 2, 3, 4, 5]).issubset(set(ranks)):
+            is_straight = True
+            straight_high = 5
+        
+        # Evaluate hand strength
+        if is_straight and is_flush:
+            return 9  # Straight flush
+        elif 4 in rank_counts.values():
+            return 8  # Four of a kind
+        elif 3 in rank_counts.values() and 2 in rank_counts.values():
+            return 7  # Full house
+        elif is_flush:
+            return 6  # Flush
+        elif is_straight:
+            return 5  # Straight
+        elif 3 in rank_counts.values():
+            return 4  # Three of a kind
+        elif list(rank_counts.values()).count(2) >= 2:
+            return 3  # Two pair
+        elif 2 in rank_counts.values():
+            return 2  # One pair
+        else:
+            # High card
+            high_card = max(ranks[:2])  # Only consider player cards for high card
+            if high_card >= 14:  # Ace
+                return 1
+            elif high_card >= 13:  # King
+                return 1
+            elif high_card >= 12:  # Queen
+                return 1
+            else:
+                return 0
 
     def preview_game_window(self):
         """Preview game window and capture on spacebar press"""
@@ -542,170 +1134,3 @@ class GovernorOfPokerBot:
         
         self.logger.save_calibration_data(calibration_data)
         self.logger.log(f"Calibration saved to {self.calibration_file}")
-
-    def run_bot(self, hands_to_play: int = 10):
-        """Run the bot for specified number of hands"""
-        self.logger.log(f"Starting Governor of Poker bot - will play {hands_to_play} hands")
-        self.logger.log(f"Game window: {self.game_window['width']}x{self.game_window['height']} at ({self.game_window['left']}, {self.game_window['top']})")
-        print("Press Ctrl+C to stop the bot at any time")
-        
-        try:
-            for i in range(hands_to_play):
-                print(f"\n=== Hand {i + 1} ===")
-                self.logger.log(f"Starting hand {i + 1} of {hands_to_play}")
-                
-                try:
-                    self.play_hand()
-                    time.sleep(3)  # Wait between hands
-                    self.logger.log(f"Completed hand {i + 1}, waiting 3 seconds")
-                    
-                except KeyboardInterrupt:
-                    self.logger.log("Hand interrupted by user")
-                    print("Hand interrupted by user")
-                    break
-                    
-                except Exception as e:
-                    self.logger.log_error(f"Error in hand {i + 1}", e)
-                    print(f"Error in hand {i + 1}: {e}")
-                    time.sleep(2)  # Wait before trying next hand
-                    
-        except KeyboardInterrupt:
-            self.logger.log("Bot stopped by user")
-            print("\nBot stopped by user")
-            
-        except Exception as e:
-            self.logger.log_error(f"Fatal error in bot execution", e)
-            print(f"Fatal error: {e}")
-            
-        finally:
-            self.logger.log(f"Bot finished. Played {i + 1} hands out of {hands_to_play}")
-            print("Bot finished")
-
-    def _is_strong_hand(self, player_cards):
-        """Check if player has a strong hand"""
-        if not player_cards or len(player_cards) < 2:
-            return False
-        
-        # Check for pairs, high cards, etc.
-        card1, card2 = player_cards
-        
-        # Pair
-        if card1[0] == card2[0]:
-            self.logger.log(f"Strong hand detected: Pair of {card1[0]}s")
-            return True
-        
-        # Two high cards (A, K, Q, J)
-        high_ranks = ['A', 'K', 'Q', 'J']
-        if card1[0] in high_ranks and card2[0] in high_ranks:
-            self.logger.log(f"Strong hand detected: {card1[0]}{card1[1]} and {card2[0]}{card2[1]} (both high cards)")
-            return True
-        
-        # Ace with anything
-        if card1[0] == 'A' or card2[0] == 'A':
-            self.logger.log("Strong hand detected: Ace with another card")
-            return True
-        
-        return False
-
-    def _is_weak_hand(self, player_cards):
-        """Check if player has a weak hand"""
-        if not player_cards or len(player_cards) < 2:
-            return True
-        
-        card1, card2 = player_cards
-        
-        # Low cards (2-6)
-        low_ranks = ['2', '3', '4', '5', '6']
-        if card1[0] in low_ranks and card2[0] in low_ranks:
-            # Check if they're not suited or connected
-            if card1[1] != card2[1]:  # Not suited
-                # Check if not connected (e.g., 2 and 4)
-                rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6}
-                if card1[0] in rank_values and card2[0] in rank_values:
-                    if abs(rank_values[card1[0]] - rank_values[card2[0]]) > 1:
-                        self.logger.log(f"Weak hand detected: {card1[0]}{card1[1]} and {card2[0]}{card2[1]} (low, unconnected, unsuited)")
-                        return True
-        
-        return False
-
-    def _click_button(self, button_name: str):
-        """Simulate mouse click on specified button"""
-        if button_name in self.screen_regions['action_buttons']:
-            x, y, w, h = self.screen_regions['action_buttons'][button_name]
-            center_x = x + w // 2
-            center_y = y + h // 2
-            
-            self.logger.log(f"Clicking {button_name} button at ({center_x}, {center_y})")
-            print(f"Clicking {button_name} button at ({center_x}, {center_y})")
-            
-            try:
-                # Move mouse to position and click
-                pyautogui.moveTo(center_x, center_y, duration=0.2)
-                pyautogui.click()
-                time.sleep(0.5)  # Small delay to allow action to register
-                self.logger.log(f"Successfully clicked {button_name} button")
-            except Exception as e:
-                self.logger.log_error(f"Failed to click {button_name} button", e)
-        else:
-            self.logger.log(f"Unknown button: {button_name}", level="ERROR")
-            print(f"Unknown button: {button_name}")
-
-
-    def simple_card_detection(self, img):
-        """Simple card detection using basic image processing"""
-        print("Using simple card detection...")
-        
-        # Get player card regions
-        x1, y1, w1, h1 = self.screen_regions['player_card1']
-        x2, y2, w2, h2 = self.screen_regions['player_card2']
-        
-        # Convert to relative coordinates
-        rel_x1 = x1 - self.game_window['left']
-        rel_y1 = y1 - self.game_window['top']
-        rel_x2 = x2 - self.game_window['left']
-        rel_y2 = y2 - self.game_window['top']
-        
-        # Extract card images
-        card1_img = img[rel_y1:rel_y1+h1, rel_x1:rel_x1+w1]
-        card2_img = img[rel_y2:rel_y2+h2, rel_x2:rel_x2+w2]
-        
-        # Save for debugging
-        self.logger.save_image(card1_img, "simple_card1.png", "Simple detection card 1")
-        self.logger.save_image(card2_img, "simple_card2.png", "Simple detection card 2")
-        
-        # Simple color-based detection
-        def get_dominant_color(image):
-            """Get dominant color from image"""
-            pixels = image.reshape(-1, 3)
-            unique_colors, counts = np.unique(pixels, axis=0, return_counts=True)
-            dominant_color = unique_colors[np.argmax(counts)]
-            return dominant_color
-        
-        # Analyze card colors
-        color1 = get_dominant_color(card1_img)
-        color2 = get_dominant_color(card2_img)
-        
-        print(f"Card 1 dominant color: {color1}")
-        print(f"Card 2 dominant color: {color2}")
-        
-        # Simple heuristic: if card has red, it's hearts/diamonds, else clubs/spades
-        def is_red_card(color):
-            return color[0] > 100 and color[1] < 100 and color[2] < 100
-        
-        card1_red = is_red_card(color1)
-        card2_red = is_red_card(color2)
-        
-        # Instead of defaulting to specific cards, return generic cards based on color
-        # This is more honest than making up specific cards
-        if card1_red:
-            card1 = "Ah"  # Generic red card
-        else:
-            card1 = "As"  # Generic black card
-        
-        if card2_red:
-            card2 = "Kh"  # Generic red card
-        else:
-            card2 = "Ks"  # Generic black card
-        
-        print(f"Simple detection: Card1={card1}, Card2={card2}")
-        return [card1, card2]
