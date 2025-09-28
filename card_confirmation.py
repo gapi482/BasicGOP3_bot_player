@@ -15,6 +15,7 @@ import time
 class CardConfirmationWindow:
     def __init__(self):
         self.root = None
+        self.window_thread = None
         self.confirmed_cards = None
         self.player_cards = []
         self.community_cards = []
@@ -70,15 +71,32 @@ class CardConfirmationWindow:
             print(f"Error loading template images: {e}")
     
     def show_confirmation(self, detected_player_cards, detected_community_cards, extracted_images):
-        """Show the card confirmation window"""
+        """Open (or focus) a persistent confirmation window; return immediately."""
         self.player_cards = detected_player_cards.copy() if detected_player_cards else []
         self.community_cards = detected_community_cards.copy() if detected_community_cards else []
         self.extracted_images = extracted_images.copy() if extracted_images else {}
-        
-        # Create window on main thread (Tk must run in main thread)
-        self.result = None
-        self._create_window()
-        return self.result
+
+        try:
+            if self.root is not None and self.root.winfo_exists():
+                try:
+                    self.root.lift()
+                except Exception:
+                    pass
+            else:
+                # Start the Tk window in its own thread to keep CLI responsive
+                def _runner():
+                    self._create_window()
+                self.window_thread = threading.Thread(target=_runner, daemon=True)
+                self.window_thread.start()
+        except Exception:
+            pass
+
+        # Do not block; return a non-committal result
+        return {
+            'action': 'skip',
+            'player_cards': detected_player_cards or [],
+            'community_cards': detected_community_cards or []
+        }
     
     def _create_window(self):
         """Create the confirmation window"""
@@ -431,8 +449,7 @@ class CardConfirmationWindow:
             'player_cards': player_cards,
             'community_cards': community_cards
         }
-        
-        self.root.destroy()
+        # Keep window open
     
     def _fold_hand(self):
         """Fold the hand"""
@@ -441,8 +458,7 @@ class CardConfirmationWindow:
             'player_cards': [],
             'community_cards': []
         }
-        
-        self.root.destroy()
+        # Keep window open
     
     def _skip_confirmation(self):
         """Skip confirmation and use detected cards"""
@@ -451,8 +467,7 @@ class CardConfirmationWindow:
             'player_cards': self.player_cards,
             'community_cards': self.community_cards
         }
-        
-        self.root.destroy()
+        # Keep window open
 
 # Global instance
 confirmation_window = CardConfirmationWindow()

@@ -4,6 +4,7 @@ Governor of Poker Bot - Main Entry Point
 """
 
 from bot import GovernorOfPokerBot
+from card_confirmation import confirm_cards
 import sys
 from logger import Logger
 
@@ -18,6 +19,12 @@ def main():
         
         # Initialize bot with calibration file
         bot = GovernorOfPokerBot('screen_calibration.json', logger)
+        
+        # Launch persistent confirmation window immediately (non-blocking)
+        try:
+            confirm_cards([], [], None)
+        except Exception:
+            pass
         
         print(f"Game window: {bot.game_window['width']}x{bot.game_window['height']} at ({bot.game_window['left']}, {bot.game_window['top']})")
         print()
