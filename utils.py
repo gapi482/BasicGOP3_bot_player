@@ -21,7 +21,7 @@ def __init__(self, window_title="GOP3", logger=None):
     self.window_index = 0
     self.last_capture_time = 0
     self.capture_interval = 0.1
-    self.logger = logger or Logger()  # Import Logger if not already imported
+    self.logger = logger or Logger()
 
 class WindowDetector:
     """Detect game window position and size"""
@@ -464,33 +464,29 @@ class GameWindowCapture:
         # Try multiple capture methods
         img = None
         
-        # Method 1: Use pyscreenshot with window bounds
+        # Method 1: Use pyautogui with window bounds (works reliably on Windows)
         try:
             x, y, width, height = window.left, window.top, window.width, window.height
-            self.logger.log(f"Attempting capture with bounds: {x},{y} {width}x{height}")
-            
-            # Ensure bounds are valid
+            self.logger.log(f"Attempting capture with pyautogui bounds: {x},{y} {width}x{height}")
             if width <= 0 or height <= 0:
                 self.logger.log(f"Invalid window dimensions: {width}x{height}", level="ERROR")
                 return None
-            
-            # Capture with pyscreenshot
-            screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
+            screenshot = pyautogui.screenshot(region=(x, y, width, height))
             img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-            self.logger.log("Successfully captured image using pyscreenshot")
+            self.logger.log("Successfully captured image using pyautogui")
             
         except Exception as e:
-            self.logger.log_error(f"Method 1 failed: {e}", e)
+            self.logger.log_error(f"Method 1 (pyautogui) failed: {e}", e)
         
-        # Method 2: Use pyautogui if method 1 fails
+        # Method 2: Use pyscreenshot if method 1 fails
         if img is None:
             try:
-                self.logger.log("Attempting capture with pyautogui")
-                screenshot = pyautogui.screenshot()
+                self.logger.log("Attempting capture with pyscreenshot")
+                screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
                 img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-                self.logger.log("Successfully captured image using pyautogui")
+                self.logger.log("Successfully captured image using pyscreenshot")
             except Exception as e:
-                self.logger.log_error(f"Method 2 failed: {e}", e)
+                self.logger.log_error(f"Method 2 (pyscreenshot) failed: {e}", e)
         
         # Method 3: Use win32gui if available
         if img is None:
@@ -639,13 +635,18 @@ class GameWindowCapture:
         try:
             # Get window position and size
             x, y, width, height = window.left, window.top, window.width, window.height
-            
-            # Capture the window
+
+            # Prefer pyautogui on Windows; it's more reliable than pyscreenshot
+            try:
+                pg_img = pyautogui.screenshot(region=(x, y, width, height))
+                img = cv2.cvtColor(np.array(pg_img), cv2.COLOR_RGB2BGR)
+                return img
+            except Exception:
+                pass
+
+            # Fallback to pyscreenshot
             screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
-            
-            # Convert to OpenCV format
             img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-            
             return img
         except Exception as e:
             print(f"Error capturing window image: {e}")

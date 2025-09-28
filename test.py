@@ -7,6 +7,7 @@ import numpy as np
 import os
 from typing import List, Tuple, Optional, Dict
 from logger import Logger
+import config
 
 class AdvancedTemplateMatcher:
     def __init__(self, template_dir="card_templates"):
@@ -15,8 +16,8 @@ class AdvancedTemplateMatcher:
         self.logger = Logger()
         
         # Card definitions
-        self.ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
-        self.suits = ['h', 'd', 'c', 's']
+        self.ranks = list(config.CARD_RANKS)
+        self.suits = list(config.CARD_SUITS)
         
         # Load all templates
         self.templates = self._load_all_templates()

@@ -12,6 +12,7 @@ import os
 import traceback
 from logger import Logger
 from card_detection import CardDetector
+import config
 from game_simulation import GameSimulator
 from utils import GameWindowCapture, WindowDetector, ScreenshotManager
 from card_confirmation import confirm_cards
@@ -59,26 +60,8 @@ class GovernorOfPokerBot:
     
     def _setup_defaults(self):
         """Setup default values"""
-        self.game_window = {
-            'left': 0,
-            'top': 40,
-            'width': 1920,
-            'height': 1000
-        }
-        self.screen_regions = {
-            'player_card1': (899, 628, 60, 80),
-            'player_card2': (973, 628, 60, 80),
-            'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
-            'turn_card': (780, 450, 70, 90),
-            'river_card': (860, 450, 70, 90),
-            'action_buttons': {
-                'fold': (1230, 700, 100, 40),
-                'check': (1230, 700, 100, 40),
-                'call': (1230, 700, 100, 40),
-                'raise': (1350, 700, 100, 40),
-                'all_in': (1470, 700, 100, 40)
-            }
-        }
+        self.game_window = dict(config.DEFAULT_GAME_WINDOW)
+        self.screen_regions = dict(config.DEFAULT_SCREEN_REGIONS)
     
     def test_card_detection(self):
         """Test the improved card detection system on actual game screen"""
@@ -411,24 +394,35 @@ class GovernorOfPokerBot:
     
     def _take_action(self, action):
         """Take a poker action"""
-        if action in self.screen_regions['action_buttons']:
-            x, y, w, h = self.screen_regions['action_buttons'][action]
+        buttons = self.screen_regions.get('action_buttons', {})
+        target = buttons.get(action)
+        
+        # Fallback mappings if specific action not present
+        if target is None:
+            fallback_order = {
+                'call': ['check', 'raise', 'all_in', 'fold'],
+                'raise': ['bet', 'all_in', 'call', 'check'],
+                'check': ['call', 'fold'],
+                'fold': [],
+                'all_in': ['raise', 'bet']
+            }
+            for alt in fallback_order.get(action, []):
+                if alt in buttons:
+                    self.logger.log(f"Fallback: mapping '{action}' to '{alt}'", level="WARNING")
+                    target = buttons[alt]
+                    break
+        
+        if target is not None:
+            x, y, w, h = target
             # Add some randomness to avoid detection
             x_offset = random.randint(-5, 5)
             y_offset = random.randint(-5, 5)
             pyautogui.click(x + x_offset, y + y_offset)
             time.sleep(1)  # Wait for action to complete
         else:
-            self.logger.log(f"Unknown action: {action}", level="WARNING")
-    
-    def run_bot(self, hands_to_play=10):
-        """Run the bot continuously"""
-        for i in range(hands_to_play):
-            self.play_hand()
-            
-            # Wait between hands
-            time.sleep(random.uniform(3, 7))
-    
+            self.logger.log(f"No available button for action: {action}", level="ERROR")
+
+
     def test_regions(self):
         """Test screen regions"""
         # Activate the game window first

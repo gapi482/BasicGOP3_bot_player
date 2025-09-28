@@ -4,11 +4,11 @@ Governor of Poker Bot - Main Entry Point
 """
 
 from bot import GovernorOfPokerBot
+from card_confirmation import confirm_cards
 import sys
 from logger import Logger
 
 def main():
-    """Main function to run the bot"""
     print("=== Governor of Poker Bot ===")
     
     try:
@@ -18,37 +18,34 @@ def main():
         
         # Initialize bot with calibration file
         bot = GovernorOfPokerBot('screen_calibration.json', logger)
-        
         print(f"Game window: {bot.game_window['width']}x{bot.game_window['height']} at ({bot.game_window['left']}, {bot.game_window['top']})")
         print()
         
         while True:
-            print("1. Test screen regions")
-            print("2. Test card detection")
-            print("3. Calibrate screen")
+            print("1. Play single hand")
+            print("2. Test screen regions")
+            print("3. Test card detection")
             print("4. Preview game window")
-            print("5. Play single hand")
-            print("6. Run bot continuously")
-            print("7. Exit")
-            choice = input("\nEnter your choice (1-7): ").strip()
+            print("5. Calibrate screen")
+            print("6. Exit")
+            choice = input("\nEnter your choice (1-6): ").strip()
             logger.log(f"User selected option: {choice}")
             
             if choice == "1":
-                bot.test_regions()
+                bot.play_hand()
+                try:
+                    confirm_cards([], [], None)
+                except Exception:
+                    pass
             elif choice == "2":
-                bot.test_card_detection()
+                bot.test_regions()
             elif choice == "3":
-                bot.calibrate_screen()
+                bot.test_card_detection()
             elif choice == "4":
                 bot.preview_game_window()
             elif choice == "5":
-                bot.play_hand()
+                bot.calibrate_screen()
             elif choice == "6":
-                hands = input("How many hands to play? (default 10): ").strip()
-                hands = int(hands) if hands.isdigit() else 10
-                logger.log(f"Starting continuous play for {hands} hands")
-                bot.run_bot(hands_to_play=hands)
-            elif choice == "7":
                 logger.log("Exiting application")
                 print("Exiting...")
                 break

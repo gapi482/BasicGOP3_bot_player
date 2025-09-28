@@ -51,3 +51,30 @@ DEBUG = {
     'save_debug_images': True,
     'verbose_output': True,
 }
+
+# Poker card constants and default screen regions
+CARD_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
+CARD_SUITS = ['h', 'd', 'c', 's']
+
+# Sensible defaults; overridden by calibration when available
+DEFAULT_GAME_WINDOW = {
+    'left': 0,
+    'top': 40,
+    'width': 1920,
+    'height': 1000,
+}
+
+DEFAULT_SCREEN_REGIONS = {
+    'player_card1': (899, 628, 60, 80),
+    'player_card2': (973, 628, 60, 80),
+    'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
+    'turn_card': (780, 450, 70, 90),
+    'river_card': (860, 450, 70, 90),
+    'action_buttons': {
+        'fold': (1230, 700, 100, 40),
+        'check': (1230, 700, 100, 40),
+        'call': (1230, 700, 100, 40),
+        'raise': (1350, 700, 100, 40),
+        'all_in': (1470, 700, 100, 40),
+    }
+}

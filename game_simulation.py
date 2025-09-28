@@ -5,12 +5,14 @@ Game Simulation Module
 import random
 from typing import List, Tuple
 from phevaluator import evaluate_cards
+import config
 
 class GameSimulator:
     def __init__(self):
         """Initialize game simulator"""
-        self.suits = ['d', 's', 'c', 'h']
-        self.ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
+        # Use unified constants
+        self.suits = list(config.CARD_SUITS)
+        self.ranks = list(config.CARD_RANKS)
         self.cards = [r + s for r in self.ranks for s in self.suits]
 
     def card_to_values(self, card: str) -> Tuple[int, int]:
