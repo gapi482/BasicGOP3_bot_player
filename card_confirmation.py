@@ -21,8 +21,9 @@ class CardConfirmationWindow:
         self.result = None
         
         # Themed colors inspired by GOP3
-        self.theme_bg = '#1b2a34'       # dark slate blue/teal
-        self.theme_panel = '#243946'    # slightly lighter panel
+        # Poker green theme
+        self.theme_bg = '#0b5d1e'       # poker table green
+        self.theme_panel = '#0e6f26'    # slightly lighter/darker green panel
         self.theme_accent = '#f0c674'   # gold accent
         self.theme_text = '#e6eef2'     # near-white text
         
@@ -116,10 +117,10 @@ class CardConfirmationWindow:
         self.player1_suit_buttons = {}
         for i, (suit, emoji) in enumerate(self.suit_emojis.items()):
             fg = '#c0392b' if suit in ('h', 'd') else '#2ecc71'
-            btn = tk.Button(player_frame, text=emoji, width=3, height=2,
+            btn = tk.Button(player_frame, text=emoji, width=4, height=2,
                            command=lambda s=suit: self._set_suit(1, s),
                            bg=self._suit_bg(self.player_card1_suit.get(), suit),
-                           fg=fg, font=("Arial", 14, "bold"), relief=tk.RIDGE)
+                           fg=fg, font=("Arial", 18, "bold"), relief=tk.RIDGE)
             btn.grid(row=0, column=2+i, padx=2)
             self.player1_suit_buttons[suit] = btn
         
@@ -136,10 +137,10 @@ class CardConfirmationWindow:
         self.player2_suit_buttons = {}
         for i, (suit, emoji) in enumerate(self.suit_emojis.items()):
             fg = '#c0392b' if suit in ('h', 'd') else '#2ecc71'
-            btn = tk.Button(player_frame, text=emoji, width=3, height=2,
+            btn = tk.Button(player_frame, text=emoji, width=4, height=2,
                            command=lambda s=suit: self._set_suit(2, s),
                            bg=self._suit_bg(self.player_card2_suit.get(), suit),
-                           fg=fg, font=("Arial", 14, "bold"), relief=tk.RIDGE)
+                           fg=fg, font=("Arial", 18, "bold"), relief=tk.RIDGE)
             btn.grid(row=1, column=2+i, padx=2, pady=(5, 0))
             self.player2_suit_buttons[suit] = btn
         
@@ -157,20 +158,24 @@ class CardConfirmationWindow:
             self.community_ranks.append(rank_var)
             self.community_suits.append(suit_var)
             
-            ttk.Label(community_frame, text=f"{i+1}:").grid(row=0, column=i*6, padx=(0, 2))
+            # Row layout: flop (0..2) on row 0, turn/river (3..4) on row 1
+            row_idx = 0 if i < 3 else 1
+            base_col = (i if i < 3 else (i - 3)) * 6
+            
+            ttk.Label(community_frame, text=f"{i+1}:").grid(row=row_idx, column=base_col, padx=(0, 2), pady=(0, 4))
             rank_combo = ttk.Combobox(community_frame, textvariable=rank_var, 
                                      values=self.ranks, width=3)
-            rank_combo.grid(row=0, column=i*6+1, padx=(0, 2))
+            rank_combo.grid(row=row_idx, column=base_col+1, padx=(0, 2), pady=(0, 4))
             
             # Suit buttons for community cards
             btn_map = {}
             for j, (suit, emoji) in enumerate(self.suit_emojis.items()):
                 fg = '#c0392b' if suit in ('h', 'd') else '#2ecc71'
-                btn = tk.Button(community_frame, text=emoji, width=3, height=2,
+                btn = tk.Button(community_frame, text=emoji, width=4, height=2,
                                command=lambda s=suit, idx=i: self._set_community_suit(idx, s),
                                bg=self._suit_bg(suit_var.get(), suit),
-                               fg=fg, font=("Arial", 14, "bold"), relief=tk.RIDGE)
-                btn.grid(row=0, column=i*6+2+j, padx=2)
+                               fg=fg, font=("Arial", 18, "bold"), relief=tk.RIDGE)
+                btn.grid(row=row_idx, column=base_col+2+j, padx=2, pady=(0, 4))
                 btn_map[suit] = btn
             self.community_suit_buttons.append(btn_map)
         
