@@ -28,9 +28,8 @@ def main():
             print("3. Calibrate screen")
             print("4. Preview game window")
             print("5. Play single hand")
-            print("6. Run bot continuously")
-            print("7. Exit")
-            choice = input("\nEnter your choice (1-7): ").strip()
+            print("6. Exit")
+            choice = input("\nEnter your choice (1-6): ").strip()
             logger.log(f"User selected option: {choice}")
             
             if choice == "1":
@@ -44,11 +43,6 @@ def main():
             elif choice == "5":
                 bot.play_hand()
             elif choice == "6":
-                hands = input("How many hands to play? (default 10): ").strip()
-                hands = int(hands) if hands.isdigit() else 10
-                logger.log(f"Starting continuous play for {hands} hands")
-                bot.run_bot(hands_to_play=hands)
-            elif choice == "7":
                 logger.log("Exiting application")
                 print("Exiting...")
                 break

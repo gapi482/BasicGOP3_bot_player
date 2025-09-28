@@ -439,13 +439,7 @@ class GovernorOfPokerBot:
         else:
             self.logger.log(f"No available button for action: {action}", level="ERROR")
     
-    def run_bot(self, hands_to_play=10):
-        """Run the bot continuously"""
-        for i in range(hands_to_play):
-            self.play_hand()
-            
-            # Wait between hands
-            time.sleep(random.uniform(3, 7))
+    # Removed continuous run per requirements
     
     def test_regions(self):
         """Test screen regions"""

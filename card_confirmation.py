@@ -86,7 +86,11 @@ class CardConfirmationWindow:
         self.root.title("Card Confirmation")
         self.root.geometry("980x460")
         self.root.attributes('-topmost', True)  # Always on top
-        self.root.focus_force()  # Force focus
+        # Do not force focus; keep CMD usable while this panel stays visible
+        try:
+            self.root.lift()
+        except Exception:
+            pass
         
         # Apply base theme
         self.root.configure(bg=self.theme_bg)
@@ -375,20 +379,20 @@ class CardConfirmationWindow:
         """Detect current table and fill only blank fields with newly detected cards."""
         player_cards, community_cards = self._detect_cards_from_screen()
         # Update player cards if blank
-        if self.player_card1_rank.get() == '' and len(player_cards) >= 1 and player_cards[0]:
+        if (self.player_card1_rank.get() == '' or self.player_card1_suit.get() == '') and len(player_cards) >= 1 and player_cards[0]:
             self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
-        if self.player_card2_rank.get() == '' and len(player_cards) >= 2 and player_cards[1]:
+        if (self.player_card2_rank.get() == '' or self.player_card2_suit.get() == '') and len(player_cards) >= 2 and player_cards[1]:
             self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
         # Update community cards if blank
         for i in range(min(5, len(self.community_ranks))):
-            if self.community_ranks[i].get() == '' and i < len(community_cards) and community_cards[i]:
+            if (self.community_ranks[i].get() == '' or self.community_suits[i].get() == '') and i < len(community_cards) and community_cards[i]:
                 self._fill_card_value(self.community_ranks[i], self.community_suits[i], community_cards[i])
         # Refresh highlights
         self._update_suit_buttons()
 
     def _new_game(self):
-        """Reset all card fields; then refresh player/flop if present."""
-        # Clear all
+        """Perform a fresh detection cycle akin to 'Play single hand' and refresh fields."""
+        # Clear all to force new detection
         self.player_card1_rank.set('')
         self.player_card1_suit.set('')
         self.player_card2_rank.set('')
@@ -396,17 +400,15 @@ class CardConfirmationWindow:
         for i in range(5):
             self.community_ranks[i].set('')
             self.community_suits[i].set('')
-        # Detect current table and fill all detected positions for player and flop
+        # Detect and then fill all available cards (player + community)
         player_cards, community_cards = self._detect_cards_from_screen()
         if len(player_cards) >= 1 and player_cards[0]:
             self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
         if len(player_cards) >= 2 and player_cards[1]:
             self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
-        # Fill flop (first three if present)
-        for i in range(min(3, len(community_cards))):
+        for i in range(min(5, len(community_cards))):
             if community_cards[i]:
                 self._fill_card_value(self.community_ranks[i], self.community_suits[i], community_cards[i])
-        # Refresh highlights
         self._update_suit_buttons()
     
     def _confirm_cards(self):
