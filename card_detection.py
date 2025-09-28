@@ -28,7 +28,7 @@ class AdvancedTemplateMatcher:
             ('TM_SQDIFF_NORMED', cv2.TM_SQDIFF_NORMED)
         ]
         
-        print(f"Loaded {len(self.templates)} card templates")
+        # Templates loaded successfully
 
     def _load_all_templates(self) -> Dict[str, np.ndarray]:
         """Load all card templates"""
@@ -54,7 +54,7 @@ class AdvancedTemplateMatcher:
                             'edges': self._detect_edges(template),
                             'contours': self._extract_main_contour(template)
                         }
-                        self.logger.log(f"Loaded template: {card_name}")
+                        # Template loaded successfully
                     else:
                         self.logger.log(f"Failed to load template: {card_name}", level="WARNING")
                 else:
@@ -151,96 +151,51 @@ class AdvancedTemplateMatcher:
         
         return enhanced
 
-    def match_card(self, card_image: np.ndarray, confidence_threshold: float = 0.8) -> Optional[str]:
-        """Match a card image against templates with improved validation"""
+    def match_card(self, card_image: np.ndarray, confidence_threshold: float = 0.3) -> Optional[str]:
+        """Match a card image against templates with simplified, reliable approach"""
         if card_image is None or card_image.size == 0:
             return None
         
         best_match = None
         best_confidence = 0.0
-        best_method = ""
         
         try:
-            # Enhance the source image
-            enhanced_source = self._enhance_image_for_matching(card_image)
-            
-            # Test against all templates
-            for card_name, template_dict in self.templates.items():
-                for source_type, source_img in enhanced_source.items():
-                    for template_type, template_img in template_dict.items():
-                        if template_img is None:
-                            continue
-                        
-                        # Skip incompatible types
-                        if source_type == 'edges' and template_type != 'edges':
-                            continue
-                        if template_type == 'edges' and source_type != 'edges':
-                            continue
-                        
-                        # Ensure compatible image types
-                        if len(source_img.shape) != len(template_img.shape):
-                            if len(source_img.shape) == 3:
-                                source_img = cv2.cvtColor(source_img, cv2.COLOR_BGR2GRAY)
-                            if len(template_img.shape) == 3:
-                                template_img = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
-                        
-                        # Perform matching
-                        match_results = self._multi_method_template_match(source_img, template_img)
-                        
-                        # Find best confidence for this template
-                        max_confidence = max(match_results.values())
-                        best_method_for_template = max(match_results.items(), key=lambda x: x[1])[0]
-                        
-                        if max_confidence > best_confidence:
-                            best_confidence = max_confidence
-                            best_match = card_name
-                            best_method = f"{source_type}_{template_type}_{best_method_for_template}"
-            
-            # IMPROVED VALIDATION: More flexible approach
-            if best_confidence > confidence_threshold:
-                # Try separate rank/suit matching as a secondary validation
-                rank, suit = self.match_rank_and_suit_separately(card_image, confidence_threshold * 0.9)  # Slightly higher threshold for separate matching
-                
-                if rank and suit:
-                    combined_match = f"{rank}{suit}"
-                    
-                    # Case 1: Full match and separate match agree exactly
-                    if combined_match == best_match:
-                        self.logger.log(f"Validated match (exact): {best_match} with confidence {best_confidence:.3f} using {best_method}")
-                        return best_match
-                    
-                    # Case 2: Full match and separate match partially agree (either rank or suit matches)
-                    elif best_match[0] == rank or best_match[1] == suit:
-                        # If confidence is very high, trust the full match
-                        if best_confidence > 0.9:
-                            self.logger.log(f"Validated match (partial): {best_match} with confidence {best_confidence:.3f} using {best_method}")
-                            self.logger.log(f"Partial match with separate detection: {combined_match}")
-                            return best_match
-                        # Otherwise, use the separate match if its confidence is good
-                        else:
-                            self.logger.log(f"Using separate match: {combined_match} due to partial agreement")
-                            return combined_match
-                    
-                    # Case 3: Full match and separate match disagree completely
-                    else:
-                        # If full match confidence is very high, trust it
-                        if best_confidence > 0.95:
-                            self.logger.log(f"High confidence full match: {best_match} with confidence {best_confidence:.3f}")
-                            return best_match
-                        # Otherwise, no consensus, return None
-                        else:
-                            self.logger.log(f"Match validation failed. Full: {best_match}, Separate: {combined_match}")
-                            return None
-                else:
-                    # If separate matching failed but full match confidence is very high, trust it
-                    if best_confidence > 0.95:
-                        self.logger.log(f"High confidence match without separate validation: {best_match} with confidence {best_confidence:.3f}")
-                        return best_match
-                    else:
-                        self.logger.log(f"Separate matching failed for validation of {best_match}")
-                        return None
+            # Convert card image to grayscale for consistent matching
+            if len(card_image.shape) == 3:
+                card_gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
             else:
-                self.logger.log(f"No match found above threshold. Best: {best_match} with {best_confidence:.3f}")
+                card_gray = card_image.copy()
+            
+            # Test against all templates using simple, reliable method
+            for card_name, template_dict in self.templates.items():
+                # Use the original template for best accuracy
+                template = template_dict.get('original')
+                if template is None:
+                            continue
+                        
+                # Convert template to grayscale
+                if len(template.shape) == 3:
+                    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+                else:
+                    template_gray = template.copy()
+                
+                # Resize template to match card image size
+                if card_gray.shape != template_gray.shape:
+                    template_gray = cv2.resize(template_gray, (card_gray.shape[1], card_gray.shape[0]))
+                
+                # Use normalized correlation coefficient for best results
+                result = cv2.matchTemplate(card_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                
+                # Update best match
+                if max_val > best_confidence:
+                    best_confidence = max_val
+                    best_match = card_name
+            
+            # Return match if confidence is above threshold
+            if best_confidence > confidence_threshold:
+                return best_match
+            else:
                 return None
                 
         except Exception as e:
@@ -349,26 +304,63 @@ class AdvancedTemplateMatcher:
         
         results = {}
         
-        # Test full card matching
-        full_match = self.match_card(test_image)
-        results['full_match'] = full_match
-        
-        # Test separate rank/suit matching
-        rank, suit = self.match_rank_and_suit_separately(test_image)
-        results['separate_match'] = f"{rank}{suit}" if rank and suit else None
-        
-        # Test with different confidence thresholds
-        for threshold in [0.9, 0.8, 0.7, 0.6]:
+        # Test full card matching with different thresholds
+        for threshold in [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]:
             match = self.match_card(test_image, threshold)
             results[f'threshold_{threshold}'] = match
+        
+        # Get the best match with lowest threshold
+        best_match = self.match_card(test_image, 0.3)
+        results['best_match'] = best_match
         
         # Add expected result if provided
         if expected_card:
             results['expected'] = expected_card
-            results['full_match_correct'] = full_match == expected_card
-            if rank and suit:
-                separate_result = f"{rank}{suit}"
-                results['separate_match_correct'] = separate_result == expected_card
+            results['best_match_correct'] = best_match == expected_card
+        
+        return results
+    
+    def debug_card_matching(self, card_image: np.ndarray, card_name: str = "unknown") -> Dict:
+        """Debug card matching by testing against all templates and showing confidence scores"""
+        if card_image is None or card_image.size == 0:
+            return {"error": "Card image is None or empty"}
+        
+        results = {}
+        
+        # Convert to grayscale
+        if len(card_image.shape) == 3:
+            card_gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
+        else:
+            card_gray = card_image.copy()
+        
+        # Test against all templates
+        template_scores = {}
+        for template_name, template_dict in self.templates.items():
+            template = template_dict.get('original')
+            if template is None:
+                continue
+            
+            # Convert template to grayscale
+            if len(template.shape) == 3:
+                template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+            else:
+                template_gray = template.copy()
+            
+            # Resize template to match card image size
+            if card_gray.shape != template_gray.shape:
+                template_gray = cv2.resize(template_gray, (card_gray.shape[1], card_gray.shape[0]))
+            
+            # Calculate match score
+            result = cv2.matchTemplate(card_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            
+            template_scores[template_name] = max_val
+        
+        # Sort by confidence score
+        sorted_scores = sorted(template_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        results['top_matches'] = sorted_scores[:10]  # Top 10 matches
+        results['best_match'] = sorted_scores[0] if sorted_scores else None
         
         return results
 
@@ -406,10 +398,11 @@ class CardDetector:
         return player_cards
     
     def get_community_cards(self, img, screen_regions, game_window):
-        """Extract and identify community cards"""
+        """Extract and identify community cards following Texas Hold'em rules"""
         community_cards = []
         
-        # Check flop cards
+        # Check flop cards (first 3 community cards)
+        flop_cards_present = 0
         for i, coords in enumerate(screen_regions['flop_cards']):
             x, y, w, h = coords
             rel_x = x - game_window['left']
@@ -421,36 +414,43 @@ class CardDetector:
                 card = self._detect_card(card_img, f"flop{i+1}")
                 if card:
                     community_cards.append(card)
+                    flop_cards_present += 1
             else:
                 self.logger.log(f"Flop card {i+1} not present, skipping detection")
         
-        # Check turn card
-        x, y, w, h = screen_regions['turn_card']
-        rel_x = x - game_window['left']
-        rel_y = y - game_window['top']
-        turn_img = img[rel_y:rel_y+h, rel_x:rel_x+w]
-        
-        # Check if card is present before attempting detection
-        if self._is_card_present(turn_img):
-            turn_card = self._detect_card(turn_img, "turn")
-            if turn_card:
-                community_cards.append(turn_card)
+        # Only check turn card if flop cards are present (Texas Hold'em rules)
+        if flop_cards_present > 0:
+            x, y, w, h = screen_regions['turn_card']
+            rel_x = x - game_window['left']
+            rel_y = y - game_window['top']
+            turn_img = img[rel_y:rel_y+h, rel_x:rel_x+w]
+            
+            # Check if card is present before attempting detection
+            if self._is_card_present(turn_img):
+                turn_card = self._detect_card(turn_img, "turn")
+                if turn_card:
+                    community_cards.append(turn_card)
+            else:
+                self.logger.log("Turn card not present, skipping detection")
         else:
-            self.logger.log("Turn card not present, skipping detection")
+            self.logger.log("Turn card skipped - flop cards not present yet")
         
-        # Check river card
-        x, y, w, h = screen_regions['river_card']
-        rel_x = x - game_window['left']
-        rel_y = y - game_window['top']
-        river_img = img[rel_y:rel_y+h, rel_x:rel_x+w]
-        
-        # Check if card is present before attempting detection
-        if self._is_card_present(river_img):
-            river_card = self._detect_card(river_img, "river")
-            if river_card:
-                community_cards.append(river_card)
+        # Only check river card if turn card is present (Texas Hold'em rules)
+        if len(community_cards) >= 4:  # Flop (3) + Turn (1) = 4 cards
+            x, y, w, h = screen_regions['river_card']
+            rel_x = x - game_window['left']
+            rel_y = y - game_window['top']
+            river_img = img[rel_y:rel_y+h, rel_x:rel_x+w]
+            
+            # Check if card is present before attempting detection
+            if self._is_card_present(river_img):
+                river_card = self._detect_card(river_img, "river")
+                if river_card:
+                    community_cards.append(river_card)
+            else:
+                self.logger.log("River card not present, skipping detection")
         else:
-            self.logger.log("River card not present, skipping detection")
+            self.logger.log("River card skipped - turn card not present yet")
         
         return community_cards
     
@@ -469,20 +469,20 @@ class CardDetector:
             # Method 1: Check for white/blank card background
             # A typical card has a white/light background
             mean_intensity = np.mean(gray)
-            if mean_intensity > 200:  # Very bright, likely a blank space
+            if mean_intensity > 220:  # Very bright, likely a blank space (increased threshold)
                 return False
             
             # Method 2: Check for uniform color (like a green felt table)
             # Calculate standard deviation of pixel values
             std_dev = np.std(gray)
-            if std_dev < 10:  # Very uniform, likely not a card
+            if std_dev < 5:  # Very uniform, likely not a card (reduced threshold)
                 return False
             
             # Method 3: Check for edge density
             # Cards typically have more edges than blank table areas
             edges = cv2.Canny(gray, 50, 150)
             edge_percentage = np.count_nonzero(edges) / (gray.shape[0] * gray.shape[1])
-            if edge_percentage < 0.02:  # Very few edges, likely not a card
+            if edge_percentage < 0.01:  # Very few edges, likely not a card (reduced threshold)
                 return False
             
             # Method 4: Check for specific color patterns
@@ -495,8 +495,8 @@ class CardDetector:
             green_mask = cv2.inRange(hsv, green_lower, green_upper)
             green_percentage = np.count_nonzero(green_mask) / (hsv.shape[0] * hsv.shape[1])
             
-            # If more than 70% of the area is green, it's likely table, not a card
-            if green_percentage > 0.7:
+            # If more than 80% of the area is green, it's likely table, not a card (increased threshold)
+            if green_percentage > 0.8:
                 return False
             
             # If we passed all checks, likely a card is present
@@ -508,22 +508,18 @@ class CardDetector:
             return True
     
     def _detect_card(self, card_image, card_type="unknown"):
-        """Detect card using advanced template matching"""
+        """Detect card using simplified template matching"""
         if card_image is None or card_image.size == 0:
             self.logger.log(f"{card_type} card image is None or empty", level="WARNING")
             return None
         
-        self.logger.log(f"Detecting {card_type} card, image size: {card_image.shape}")
-        
         try:
-            # Use the advanced template matcher
-            matched_card = self.template_matcher.match_card(card_image, confidence_threshold=0.7)
+            # Use simplified template matcher with lower threshold for better detection
+            matched_card = self.template_matcher.match_card(card_image, confidence_threshold=0.3)
             
             if matched_card:
-                self.logger.log(f"Successfully detected {card_type} card as: {matched_card}")
                 return matched_card
             else:
-                self.logger.log(f"Failed to detect {card_type} card", level="WARNING")
                 return None
                 
         except Exception as e:
@@ -533,3 +529,10 @@ class CardDetector:
     def test_card_detection(self, test_image_path, expected_card=None):
         """Test card detection on a single image"""
         return self.template_matcher.test_template_matching(test_image_path, expected_card)
+    
+    def debug_card_detection(self, card_image, card_type="unknown"):
+        """Debug card detection by showing all template match scores"""
+        if card_image is None or card_image.size == 0:
+            return {"error": f"{card_type} card image is None or empty"}
+        
+        return self.template_matcher.debug_card_matching(card_image, card_type)

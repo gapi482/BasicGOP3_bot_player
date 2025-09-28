@@ -61,6 +61,29 @@ class WindowDetector:
             print("Could not find game window automatically.")
         
         return game_window
+    
+    def activate_game_window(self):
+        """Activate the GOP3 game window to bring it to foreground (gentle like Alt+Tab)"""
+        try:
+            hwnd = win32gui.FindWindow(None, "GOP3")
+            if hwnd:
+                # Check if window is minimized
+                if win32gui.IsIconic(hwnd):
+                    # Only restore if minimized, don't change size if already visible
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    time.sleep(0.2)
+                
+                # Bring window to foreground without changing dimensions
+                win32gui.SetForegroundWindow(hwnd)
+                # Wait a moment for window to come to foreground
+                time.sleep(0.3)
+                return True
+            else:
+                print("Could not find GOP3 window to activate")
+                return False
+        except Exception as e:
+            print(f"Error activating game window: {e}")
+            return False
 
 
 class ScreenshotManager:

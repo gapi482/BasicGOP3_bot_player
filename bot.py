@@ -14,6 +14,8 @@ from logger import Logger
 from card_detection import CardDetector
 from game_simulation import GameSimulator
 from utils import GameWindowCapture, WindowDetector, ScreenshotManager
+from card_confirmation import confirm_cards
+import config
 
 class GovernorOfPokerBot:
     def __init__(self, calibration_file='screen_calibration.json', logger=None):
@@ -80,7 +82,8 @@ class GovernorOfPokerBot:
     
     def test_card_detection(self):
         """Test the improved card detection system on actual game screen"""
-        self.logger.log("Testing improved card detection system on game screen")
+        # Activate the game window first
+        self.window_detector.activate_game_window()
         
         # Take a screenshot of the game window
         screenshot = self.screenshot_manager.capture_game_window()
@@ -90,15 +93,12 @@ class GovernorOfPokerBot:
         
         # Save the screenshot for debugging
         cv2.imwrite('game_screenshot_test.png', screenshot)
-        self.logger.log("Game screenshot saved as game_screenshot_test.png")
         
         # Test player cards
         player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
-        self.logger.log(f"Detected player cards: {player_cards}")
         
         # Test community cards
         community_cards = self.card_detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
-        self.logger.log(f"Detected community cards: {community_cards}")
         
         # Display results
         print(f"\n=== Card Detection Test Results ===")
@@ -131,6 +131,13 @@ class GovernorOfPokerBot:
                 # Test card detection on this specific image
                 matched_card = self.card_detector._detect_card(card_img, region_name)
                 print(f"  Detected: {matched_card}")
+                
+                # Debug: Show top template matches
+                debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+                if 'top_matches' in debug_results:
+                    print(f"  Top 5 template matches:")
+                    for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                        print(f"    {j+1}. {template_name}: {score:.3f}")
             else:
                 print(f"  Detection skipped - no card present")
             
@@ -159,6 +166,13 @@ class GovernorOfPokerBot:
                 # Test card detection on this specific image
                 matched_card = self.card_detector._detect_card(card_img, region_name)
                 print(f"  Detected: {matched_card}")
+                
+                # Debug: Show top template matches
+                debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+                if 'top_matches' in debug_results:
+                    print(f"  Top 5 template matches:")
+                    for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                        print(f"    {j+1}. {template_name}: {score:.3f}")
             else:
                 print(f"  Detection skipped - no card present")
             
@@ -186,6 +200,13 @@ class GovernorOfPokerBot:
             # Test card detection on this specific image
             matched_card = self.card_detector._detect_card(card_img, region_name)
             print(f"  Detected: {matched_card}")
+            
+            # Debug: Show top template matches
+            debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+            if 'top_matches' in debug_results:
+                print(f"  Top 5 template matches:")
+                for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                    print(f"    {j+1}. {template_name}: {score:.3f}")
         else:
             print(f"  Detection skipped - no card present")
         
@@ -213,6 +234,13 @@ class GovernorOfPokerBot:
             # Test card detection on this specific image
             matched_card = self.card_detector._detect_card(card_img, region_name)
             print(f"  Detected: {matched_card}")
+            
+            # Debug: Show top template matches
+            debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+            if 'top_matches' in debug_results:
+                print(f"  Top 5 template matches:")
+                for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                    print(f"    {j+1}. {template_name}: {score:.3f}")
         else:
             print(f"  Detection skipped - no card present")
         
@@ -307,7 +335,8 @@ class GovernorOfPokerBot:
 
     def play_hand(self):
         """Play a single hand of poker"""
-        self.logger.log("Starting to play a hand")
+        # Activate the game window first
+        self.window_detector.activate_game_window()
         
         # Take screenshot
         screenshot = self.screenshot_manager.capture_game_window()
@@ -319,13 +348,30 @@ class GovernorOfPokerBot:
         player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
         community_cards = self.card_detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
         
-        self.logger.log(f"Player cards: {player_cards}")
-        self.logger.log(f"Community cards: {community_cards}")
+        # Show confirmation window if enabled
+        if config.BOT_BEHAVIOR.get('enable_card_confirmation', True):
+            confirmation_result = confirm_cards(player_cards, community_cards)
+            
+            if confirmation_result['action'] == 'fold':
+                self._take_action('fold')
+                return
+            elif confirmation_result['action'] == 'skip':
+                # Use detected cards as-is
+                final_player_cards = player_cards
+                final_community_cards = community_cards
+            else:
+                # Use confirmed/corrected cards
+                final_player_cards = confirmation_result['player_cards']
+                final_community_cards = confirmation_result['community_cards']
+        else:
+            # Use detected cards directly without confirmation
+            final_player_cards = player_cards
+            final_community_cards = community_cards
         
-        # Simple decision making based on detected cards
-        if len(player_cards) == 2:
+        # Simple decision making based on confirmed cards
+        if len(final_player_cards) == 2:
             # Calculate hand strength
-            all_cards = player_cards + community_cards
+            all_cards = final_player_cards + final_community_cards
             hand_strength = self._evaluate_hand_strength(all_cards)
             
             # Make decision based on hand strength
@@ -336,7 +382,7 @@ class GovernorOfPokerBot:
             else:
                 self._take_action('fold')
         else:
-            self.logger.log("Could not detect player cards properly", level="WARNING")
+            self.logger.log("Can't decide - player hands not recognized properly", level="WARNING")
             self._take_action('fold')
     
     def _evaluate_hand_strength(self, cards):
@@ -371,27 +417,23 @@ class GovernorOfPokerBot:
             x_offset = random.randint(-5, 5)
             y_offset = random.randint(-5, 5)
             pyautogui.click(x + x_offset, y + y_offset)
-            self.logger.log(f"Took action: {action}")
             time.sleep(1)  # Wait for action to complete
         else:
             self.logger.log(f"Unknown action: {action}", level="WARNING")
     
     def run_bot(self, hands_to_play=10):
         """Run the bot continuously"""
-        self.logger.log(f"Starting bot to play {hands_to_play} hands")
-        
         for i in range(hands_to_play):
-            self.logger.log(f"Playing hand {i+1}/{hands_to_play}")
             self.play_hand()
             
             # Wait between hands
             time.sleep(random.uniform(3, 7))
-        
-        self.logger.log("Bot finished playing")
     
     def test_regions(self):
         """Test screen regions"""
-        self.logger.log("Testing screen regions")
+        # Activate the game window first
+        self.window_detector.activate_game_window()
+        
         screenshot = self.screenshot_manager.capture_game_window()
         
         if screenshot is not None:
@@ -421,18 +463,18 @@ class GovernorOfPokerBot:
             
             # Save test image
             cv2.imwrite('test_regions.png', test_img)
-            self.logger.log("Test regions image saved as test_regions.png")
             print("Test regions image saved as test_regions.png")
     
     def calibrate_screen(self):
         """Calibrate screen regions"""
-        self.logger.log("Starting screen calibration")
         print("Screen calibration not implemented in this version")
         print("Please manually edit the screen_calibration.json file")
     
     def preview_game_window(self):
         """Preview the game window"""
-        self.logger.log("Previewing game window")
+        # Activate the game window first
+        self.window_detector.activate_game_window()
+        
         screenshot = self.screenshot_manager.capture_game_window()
         
         if screenshot is not None:
