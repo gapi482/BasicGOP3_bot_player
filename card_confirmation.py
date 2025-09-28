@@ -109,18 +109,19 @@ class CardConfirmationWindow:
         self.player_card1_rank = tk.StringVar(value=self.player_cards[0][0] if len(self.player_cards) > 0 and self.player_cards[0] else "")
         self.player_card1_suit = tk.StringVar(value=self.player_cards[0][1] if len(self.player_cards) > 0 and self.player_cards[0] else "")
         
-        rank1_combo = ttk.Combobox(player_frame, textvariable=self.player_card1_rank, 
-                                  values=self.ranks, width=3)
-        rank1_combo.grid(row=0, column=1, padx=(0, 5))
+        # Rank text entry with auto-uppercase
+        rank1_entry = ttk.Entry(player_frame, textvariable=self.player_card1_rank, width=3)
+        rank1_entry.grid(row=0, column=1, padx=(0, 5))
+        self._bind_uppercase(self.player_card1_rank)
         
         # Suit buttons for card 1
         self.player1_suit_buttons = {}
         for i, (suit, emoji) in enumerate(self.suit_emojis.items()):
-            fg = '#c0392b' if suit in ('h', 'd') else '#2ecc71'
-            btn = tk.Button(player_frame, text=emoji, width=4, height=2,
+            fg = '#c0392b' if suit in ('h', 'd') else '#000000'
+            btn = tk.Button(player_frame, text=emoji, width=2, height=1,
                            command=lambda s=suit: self._set_suit(1, s),
                            bg=self._suit_bg(self.player_card1_suit.get(), suit),
-                           fg=fg, font=("Arial", 18, "bold"), relief=tk.RIDGE)
+                           fg=fg, font=("Arial", 20, "bold"), relief=tk.RIDGE)
             btn.grid(row=0, column=2+i, padx=2)
             self.player1_suit_buttons[suit] = btn
         
@@ -129,18 +130,18 @@ class CardConfirmationWindow:
         self.player_card2_rank = tk.StringVar(value=self.player_cards[1][0] if len(self.player_cards) > 1 and self.player_cards[1] else "")
         self.player_card2_suit = tk.StringVar(value=self.player_cards[1][1] if len(self.player_cards) > 1 and self.player_cards[1] else "")
         
-        rank2_combo = ttk.Combobox(player_frame, textvariable=self.player_card2_rank, 
-                                  values=self.ranks, width=3)
-        rank2_combo.grid(row=1, column=1, padx=(0, 5), pady=(5, 0))
+        rank2_entry = ttk.Entry(player_frame, textvariable=self.player_card2_rank, width=3)
+        rank2_entry.grid(row=1, column=1, padx=(0, 5), pady=(5, 0))
+        self._bind_uppercase(self.player_card2_rank)
         
         # Suit buttons for card 2
         self.player2_suit_buttons = {}
         for i, (suit, emoji) in enumerate(self.suit_emojis.items()):
-            fg = '#c0392b' if suit in ('h', 'd') else '#2ecc71'
-            btn = tk.Button(player_frame, text=emoji, width=4, height=2,
+            fg = '#c0392b' if suit in ('h', 'd') else '#000000'
+            btn = tk.Button(player_frame, text=emoji, width=2, height=1,
                            command=lambda s=suit: self._set_suit(2, s),
                            bg=self._suit_bg(self.player_card2_suit.get(), suit),
-                           fg=fg, font=("Arial", 18, "bold"), relief=tk.RIDGE)
+                           fg=fg, font=("Arial", 20, "bold"), relief=tk.RIDGE)
             btn.grid(row=1, column=2+i, padx=2, pady=(5, 0))
             self.player2_suit_buttons[suit] = btn
         
@@ -163,18 +164,18 @@ class CardConfirmationWindow:
             base_col = (i if i < 3 else (i - 3)) * 6
             
             ttk.Label(community_frame, text=f"{i+1}:").grid(row=row_idx, column=base_col, padx=(0, 2), pady=(0, 4))
-            rank_combo = ttk.Combobox(community_frame, textvariable=rank_var, 
-                                     values=self.ranks, width=3)
-            rank_combo.grid(row=row_idx, column=base_col+1, padx=(0, 2), pady=(0, 4))
+            rank_entry = ttk.Entry(community_frame, textvariable=rank_var, width=3)
+            rank_entry.grid(row=row_idx, column=base_col+1, padx=(0, 2), pady=(0, 4))
+            self._bind_uppercase(rank_var)
             
             # Suit buttons for community cards
             btn_map = {}
             for j, (suit, emoji) in enumerate(self.suit_emojis.items()):
-                fg = '#c0392b' if suit in ('h', 'd') else '#2ecc71'
-                btn = tk.Button(community_frame, text=emoji, width=4, height=2,
+                fg = '#c0392b' if suit in ('h', 'd') else '#000000'
+                btn = tk.Button(community_frame, text=emoji, width=2, height=1,
                                command=lambda s=suit, idx=i: self._set_community_suit(idx, s),
                                bg=self._suit_bg(suit_var.get(), suit),
-                               fg=fg, font=("Arial", 18, "bold"), relief=tk.RIDGE)
+                               fg=fg, font=("Arial", 20, "bold"), relief=tk.RIDGE)
                 btn.grid(row=row_idx, column=base_col+2+j, padx=2, pady=(0, 4))
                 btn_map[suit] = btn
             self.community_suit_buttons.append(btn_map)
@@ -207,7 +208,14 @@ class CardConfirmationWindow:
         self.root.bind('<Escape>', lambda e: self._fold_hand())
         
         # Focus on first combo box
-        rank1_combo.focus()
+        try:
+            # Focus first rank entry if available
+            for child in player_frame.winfo_children():
+                if isinstance(child, ttk.Entry):
+                    child.focus()
+                    break
+        except Exception:
+            pass
         
         # Start the GUI
         self.root.mainloop()
@@ -215,6 +223,24 @@ class CardConfirmationWindow:
     def _suit_bg(self, current_value, this_suit):
         """Background color for suit buttons based on selection state."""
         return self.theme_accent if current_value == this_suit else '#d0d7de'
+
+    def _bind_uppercase(self, tk_string_var):
+        """Bind a trace to always keep the entry uppercase and restricted to valid ranks."""
+        valid_set = set(self.ranks)
+        def _on_change(*_):
+            value = tk_string_var.get().upper()
+            # allow T for 10
+            if len(value) > 1:
+                value = value[0]
+            if value and value not in valid_set:
+                # if user typed '10', convert to 'T'
+                if value == '1':
+                    value = 'T'
+                else:
+                    # keep last valid char only or clear
+                    value = value if value in valid_set else ''
+            tk_string_var.set(value)
+        tk_string_var.trace_add('write', _on_change)
 
     def _set_suit(self, card_num, suit):
         """Set suit for player card"""
