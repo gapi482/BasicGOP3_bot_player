@@ -12,6 +12,7 @@ import os
 import traceback
 from logger import Logger
 from card_detection import CardDetector
+import config
 from game_simulation import GameSimulator
 from utils import GameWindowCapture, WindowDetector, ScreenshotManager
 from card_confirmation import confirm_cards
@@ -59,26 +60,8 @@ class GovernorOfPokerBot:
     
     def _setup_defaults(self):
         """Setup default values"""
-        self.game_window = {
-            'left': 0,
-            'top': 40,
-            'width': 1920,
-            'height': 1000
-        }
-        self.screen_regions = {
-            'player_card1': (899, 628, 60, 80),
-            'player_card2': (973, 628, 60, 80),
-            'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
-            'turn_card': (780, 450, 70, 90),
-            'river_card': (860, 450, 70, 90),
-            'action_buttons': {
-                'fold': (1230, 700, 100, 40),
-                'check': (1230, 700, 100, 40),
-                'call': (1230, 700, 100, 40),
-                'raise': (1350, 700, 100, 40),
-                'all_in': (1470, 700, 100, 40)
-            }
-        }
+        self.game_window = dict(config.DEFAULT_GAME_WINDOW)
+        self.screen_regions = dict(config.DEFAULT_SCREEN_REGIONS)
     
     def test_card_detection(self):
         """Test the improved card detection system on actual game screen"""

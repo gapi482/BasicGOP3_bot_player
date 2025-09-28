@@ -9,6 +9,7 @@ import os
 import cv2
 import numpy as np
 from PIL import Image, ImageTk
+import config
 import threading
 import time
 
@@ -31,9 +32,9 @@ class CardConfirmationWindow:
         self.theme_text = '#e6eef2'     # near-white text
         
         # Card options
-        self.ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
+        self.ranks = list(config.CARD_RANKS)
         self.suit_emojis = {'h': '♥', 'd': '♦', 'c': '♣', 's': '♠'}
-        self.suits = ['h', 'd', 'c', 's']
+        self.suits = list(config.CARD_SUITS)
         self.card_options = [f"{rank}{suit}" for rank in self.ranks for suit in self.suits]
         
         # Button reference maps to avoid grid lookups
@@ -42,19 +43,10 @@ class CardConfirmationWindow:
         self.community_suit_buttons = []  # list of dicts per community card
 
         # Calibration and capture/detector placeholders
-        self.game_window = {
-            'left': 0,
-            'top': 40,
-            'width': 1920,
-            'height': 1000
-        }
-        self.screen_regions = {
-            'player_card1': (899, 628, 60, 80),
-            'player_card2': (973, 628, 60, 80),
-            'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
-            'turn_card': (780, 450, 70, 90),
-            'river_card': (860, 450, 70, 90)
-        }
+        self.game_window = dict(config.DEFAULT_GAME_WINDOW)
+        sr = dict(config.DEFAULT_SCREEN_REGIONS)
+        sr['flop_cards'] = list(config.DEFAULT_SCREEN_REGIONS['flop_cards'])
+        self.screen_regions = sr
         
     def load_template_images(self):
         """Load template images for display"""
