@@ -4,6 +4,8 @@ Fast Card Confirmation Window for Poker Bot
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
+import json
+import os
 import cv2
 import numpy as np
 from PIL import Image, ImageTk
@@ -37,6 +39,21 @@ class CardConfirmationWindow:
         self.player1_suit_buttons = {}
         self.player2_suit_buttons = {}
         self.community_suit_buttons = []  # list of dicts per community card
+
+        # Calibration and capture/detector placeholders
+        self.game_window = {
+            'left': 0,
+            'top': 40,
+            'width': 1920,
+            'height': 1000
+        }
+        self.screen_regions = {
+            'player_card1': (899, 628, 60, 80),
+            'player_card2': (973, 628, 60, 80),
+            'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
+            'turn_card': (780, 450, 70, 90),
+            'river_card': (860, 450, 70, 90)
+        }
         
     def load_template_images(self):
         """Load template images for display"""
@@ -74,6 +91,9 @@ class CardConfirmationWindow:
         # Apply base theme
         self.root.configure(bg=self.theme_bg)
         
+        # Load calibration if available
+        self._load_calibration()
+
         # Load template images (requires an active Tk root)
         self.load_template_images()
         
@@ -199,9 +219,13 @@ class CardConfirmationWindow:
                              command=self._skip_confirmation)
         skip_btn.grid(row=0, column=2)
 
-        # Switch to table (focus game window)
-        switch_btn = ttk.Button(button_frame, text="SWITCH TO TABLE", command=self._switch_to_table)
-        switch_btn.grid(row=0, column=3, padx=(10, 0))
+        # Update State: detect and fill only new cards (blank fields)
+        update_btn = ttk.Button(button_frame, text="UPDATE STATE", command=self._update_state)
+        update_btn.grid(row=0, column=3, padx=(10, 0))
+
+        # New Game: reset entries and refresh detected player/flop if present
+        new_game_btn = ttk.Button(button_frame, text="NEW GAME", command=self._new_game)
+        new_game_btn.grid(row=0, column=4, padx=(10, 0))
         
         # Bind Enter key to confirm
         self.root.bind('<Return>', lambda e: self._confirm_cards())
@@ -270,17 +294,120 @@ class CardConfirmationWindow:
             for suit, btn in suit_map.items():
                 btn.configure(bg=self._suit_bg(self.community_suits[idx].get(), suit))
 
-    def _switch_to_table(self):
-        """Bring the GOP3 game window to the front without closing this dialog."""
+    def _load_calibration(self):
+        """Load calibration file if present."""
         try:
-            from utils import WindowDetector
-            wd = WindowDetector()
-            wd.activate_game_window()
-        except Exception as e:
+            calib_path = 'screen_calibration.json'
+            if os.path.exists(calib_path):
+                with open(calib_path, 'r') as f:
+                    data = json.load(f)
+                if 'game_window' in data:
+                    self.game_window = data['game_window']
+                if 'screen_regions' in data:
+                    self.screen_regions = data['screen_regions']
+        except Exception:
+            pass
+
+    def _capture_screenshot(self):
+        """Capture the current GOP3 game window as BGR numpy array."""
+        try:
+            from utils import GameWindowCapture, WindowDetector
+            # Try to bring window forward softly
             try:
-                messagebox.showwarning("Switch Failed", f"Could not switch to table: {e}")
+                wd = WindowDetector()
+                wd.activate_game_window()
             except Exception:
                 pass
+            gwc = GameWindowCapture("GOP3")
+            # Try locate window
+            try:
+                gwc.find_window()
+            except Exception:
+                pass
+            img = None
+            try:
+                img = gwc.capture_game_image()
+            except Exception:
+                # fallback try direct capture
+                try:
+                    img = gwc.capture_window_image()
+                except Exception:
+                    img = None
+            return img
+        except Exception as e:
+            try:
+                messagebox.showwarning("Capture Failed", f"Could not capture game window: {e}")
+            except Exception:
+                pass
+            return None
+
+    def _detect_cards_from_screen(self):
+        """Run detection and return (player_cards, community_cards)."""
+        try:
+            from card_detection import CardDetector
+            screenshot = self._capture_screenshot()
+            if screenshot is None:
+                return [], []
+            detector = CardDetector()
+            player_cards = detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
+            community_cards = detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
+            return player_cards, community_cards
+        except Exception as e:
+            try:
+                messagebox.showwarning("Detection Failed", f"Card detection failed: {e}")
+            except Exception:
+                pass
+            return [], []
+
+    def _fill_card_value(self, rank_var, suit_var, card_value):
+        """Helper to set rank/suit variables from a 'Rs' string like 'Ah'."""
+        if not card_value or len(card_value) < 2:
+            return False
+        rank = card_value[0].upper()
+        suit = card_value[1].lower()
+        if rank and suit in self.suits:
+            rank_var.set(rank)
+            suit_var.set(suit)
+            return True
+        return False
+
+    def _update_state(self):
+        """Detect current table and fill only blank fields with newly detected cards."""
+        player_cards, community_cards = self._detect_cards_from_screen()
+        # Update player cards if blank
+        if self.player_card1_rank.get() == '' and len(player_cards) >= 1 and player_cards[0]:
+            self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
+        if self.player_card2_rank.get() == '' and len(player_cards) >= 2 and player_cards[1]:
+            self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
+        # Update community cards if blank
+        for i in range(min(5, len(self.community_ranks))):
+            if self.community_ranks[i].get() == '' and i < len(community_cards) and community_cards[i]:
+                self._fill_card_value(self.community_ranks[i], self.community_suits[i], community_cards[i])
+        # Refresh highlights
+        self._update_suit_buttons()
+
+    def _new_game(self):
+        """Reset all card fields; then refresh player/flop if present."""
+        # Clear all
+        self.player_card1_rank.set('')
+        self.player_card1_suit.set('')
+        self.player_card2_rank.set('')
+        self.player_card2_suit.set('')
+        for i in range(5):
+            self.community_ranks[i].set('')
+            self.community_suits[i].set('')
+        # Detect current table and fill all detected positions for player and flop
+        player_cards, community_cards = self._detect_cards_from_screen()
+        if len(player_cards) >= 1 and player_cards[0]:
+            self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
+        if len(player_cards) >= 2 and player_cards[1]:
+            self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
+        # Fill flop (first three if present)
+        for i in range(min(3, len(community_cards))):
+            if community_cards[i]:
+                self._fill_card_value(self.community_ranks[i], self.community_suits[i], community_cards[i])
+        # Refresh highlights
+        self._update_suit_buttons()
     
     def _confirm_cards(self):
         """Confirm the selected cards"""
