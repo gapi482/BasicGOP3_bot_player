@@ -35,6 +35,7 @@ BOT_BEHAVIOR = {
     'bet_threshold': 0.6,     # Bet if win probability > 60%
     'delay_between_actions': 0.5,
     'delay_between_hands': 3.0,
+    'enable_card_confirmation': True,  # Enable card confirmation window
 }
 
 # File paths

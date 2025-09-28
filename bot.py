@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Main Bot Class for Governor of Poker
+Main Bot Class for Governor of Poker - Updated with Improved Card Detection
 """
-
+import random
 import cv2
+import numpy as np
 import pyautogui
 import time
 import json
@@ -12,11 +13,10 @@ import traceback
 from logger import Logger
 from card_detection import CardDetector
 from game_simulation import GameSimulator
-from utils import WindowDetector, ScreenshotManager, GameWindowCapture
-from logger import Logger
+from utils import GameWindowCapture, WindowDetector, ScreenshotManager
+from card_confirmation import confirm_cards
+import config
 
-
-# Update the GovernorOfPokerBot class
 class GovernorOfPokerBot:
     def __init__(self, calibration_file='screen_calibration.json', logger=None):
         """Initialize the bot with calibration data"""
@@ -25,7 +25,7 @@ class GovernorOfPokerBot:
         
         # Initialize logger
         self.logger = Logger()
-        self.logger.log("Initializing Governor of Poker Bot")
+        self.logger.log("Initializing Governor of Poker Bot with Improved Card Detection")
         
         # Load calibration data
         if os.path.exists(calibration_file):
@@ -40,672 +40,470 @@ class GovernorOfPokerBot:
         # Initialize components
         self.window_detector = WindowDetector()
         self.screenshot_manager = ScreenshotManager(self.game_window)
-        self.card_detector = CardDetector()
+        self.card_detector = CardDetector()  # Now using improved template matching
         self.game_simulator = GameSimulator()
+        
+        # Initialize simple odds calculator (fallback)
+        self.odds_calculator = SimpleOddsCalculator()
         
         # Safety settings
         pyautogui.PAUSE = 0.5
         pyautogui.FAILSAFE = True
         
-        self.logger.log("Bot initialized successfully")
+        self.logger.log("Bot initialized successfully with improved card detection")
     
-    def play_hand(self):
-        """Main function to play one hand"""
-        print("Starting new hand...")
-        
-        # Take screenshot
-        img = self.screenshot_manager.capture_game_window()
-        if img is None:
-            print("Failed to take screenshot")
-            return
-        
-        # Try normal card detection first
-        player_cards = self.card_detector.get_player_cards(img, self.screen_regions, self.game_window)
-        community_cards = self.card_detector.get_community_cards(img, self.screen_regions, self.game_window)
-        
-        # Check if detection was successful
-        detection_successful = (
-            len(player_cards) >= 2 and 
-            all(player_cards) and 
-            all(self.card_detector._is_valid_card(card) for card in player_cards)
-        )
-        
-        if not detection_successful:
-            print("Normal card detection failed or returned invalid cards, using simple detection...")
-            player_cards = self.simple_card_detection(img)
-            community_cards = []  # Skip community cards for now
-            
-            # Check if simple detection was successful
-            if len(player_cards) < 2 or not all(player_cards):
-                print("Could not detect player cards even with simple detection")
-                return
-        
-        print(f"Player cards: {player_cards}")
-        print(f"Community cards: {community_cards}")
-        
-        # Run simulation
-        try:
-            win_prob, lose_prob, tie_prob = self.game_simulator.monte_carlo_simulation(
-                player_cards, community_cards
-            )
-            
-            # Log simulation results
-            self.logger.log_simulation_results(win_prob, lose_prob, tie_prob)
-            
-            # Print basic info to console
-            print(f"Win probability: {win_prob:.2%}")
-            print(f"Lose probability: {lose_prob:.2%}")
-            print(f"Tie probability: {tie_prob:.2%}")
-            
-            # Make decision
-            decision = self.game_simulator.make_decision(win_prob)
-            self.logger.log_decision(decision)
-            
-            # Print basic info to console
-            print(f"Decision: {decision}")
-            
-            # Execute decision
-            self._click_button(decision)
-            
-        except Exception as e:
-            self.logger.log_error("Error in simulation", e)
-            traceback.print_exc()
-            print("Using fallback decision")
-            
-            # Better fallback decision based on hand strength
-            if self._is_strong_hand(player_cards):
-                print("Strong hand detected, betting")
-                self.logger.log_decision("bet (fallback)")
-                self._click_button('bet')
-            elif self._is_weak_hand(player_cards):
-                print("Weak hand detected, checking")
-                self.logger.log_decision("check (fallback)")
-                self._click_button('check')
-            else:
-                print("Medium hand, checking")
-                self.logger.log_decision("check (fallback)")
-                self._click_button('check')
-            """Main function to play one hand"""
-            print("Starting new hand...")
-            
-            # Take screenshot
-            img = self.screenshot_manager.capture_game_window()
-            if img is None:
-                print("Failed to take screenshot")
-                return
-            
-            # Try normal card detection first
-            player_cards = self.card_detector.get_player_cards(img, self.screen_regions, self.game_window)
-            community_cards = self.card_detector.get_community_cards(img, self.screen_regions, self.game_window)
-            
-            # If normal detection fails or returns invalid cards, use simple detection
-            if len(player_cards) < 2 or not all(self.card_detector._is_valid_card(card) for card in player_cards):
-                print("Normal card detection failed or returned invalid cards, using simple detection...")
-                player_cards = self.simple_card_detection(img)
-                community_cards = []  # Skip community cards for now
-            
-            print(f"Player cards: {player_cards}")
-            print(f"Community cards: {community_cards}")
-            
-            if len(player_cards) < 2 or not all(player_cards):  # Check for None values
-                print("Could not detect player cards")
-                return
-            
-            # Run simulation
-            try:
-                win_prob, lose_prob, tie_prob = self.game_simulator.monte_carlo_simulation(
-                    player_cards, community_cards
-                )
-                
-                # Log simulation results
-                self.logger.log_simulation_results(win_prob, lose_prob, tie_prob)
-                
-                # Print basic info to console
-                print(f"Win probability: {win_prob:.2%}")
-                print(f"Lose probability: {lose_prob:.2%}")
-                print(f"Tie probability: {tie_prob:.2%}")
-                
-                # Make decision
-                decision = self.game_simulator.make_decision(win_prob)
-                self.logger.log_decision(decision)
-                
-                # Print basic info to console
-                print(f"Decision: {decision}")
-                
-                # Execute decision
-                self._click_button(decision)
-                
-            except Exception as e:
-                self.logger.log_error("Error in simulation", e)
-                print("Using fallback decision")
-                
-                # Better fallback decision based on hand strength
-                if self._is_strong_hand(player_cards):
-                    print("Strong hand detected, betting")
-                    self.logger.log_decision("bet (fallback)")
-                    self._click_button('bet')
-                elif self._is_weak_hand(player_cards):
-                    print("Weak hand detected, checking")
-                    self.logger.log_decision("check (fallback)")
-                    self._click_button('check')
-                else:
-                    print("Medium hand, checking")
-                    self.logger.log_decision("check (fallback)")
-                    self._click_button('check')
-
-    def preview_game_window(self):
-        """Preview game window and capture on spacebar press"""
-        print("=== Game Window Preview ===")
-        print("Press SPACE to capture current frame")
-        print("Press ESC to exit preview mode")
-        self.logger.log("Starting game window preview")
-        
-        # Initialize window capture
-        window_capture = GameWindowCapture("GOP3")
-        
-        # Try to find the game window
-        if not window_capture.find_window():
-            self.logger.log("Could not find game window automatically", level="WARNING")
-            print("Trying all available windows...")
-            
-            if not window_capture.try_all_windows():
-                self.logger.log("Could not find any suitable game window", level="ERROR")
-                print("Please make sure the game is running and try again.")
-                return
-        
-        # Activate the window
-        if not window_capture.activate_window():
-            self.logger.log("Could not activate game window", level="ERROR")
-            print("Could not activate game window.")
-            return
-        
-        # Create window for preview
-        cv2.namedWindow("Game Preview", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Game Preview", 800, 600)
-        
-        # Counter for captured images
-        counter = 0
-        
-        # Status variables
-        last_capture_time = 0
-        capture_interval = 0.5  # Minimum time between captures
-        
-        self.logger.log("Starting preview loop")
-        
-        while True:
-            try:
-                # Check if window still exists
-                if window_capture.window and not window_capture.window.isActive:
-                    self.logger.log("Game window is no longer active", level="WARNING")
-                    break
-                
-                # Capture game image
-                current_time = time.time()
-                if current_time - last_capture_time >= capture_interval:
-                    game_image = window_capture.capture_game_image()
-                    last_capture_time = current_time
-                else:
-                    game_image = None
-                
-                if game_image is not None:
-                    # Show the image
-                    cv2.imshow("Game Preview", game_image)
-                    
-                    # Check for key press
-                    key = cv2.waitKey(1) & 0xFF
-                    
-                    if key == 32:  # SPACE key
-                        # Save the captured image
-                        filename = f"game_capture_{counter}.png"
-                        self.logger.save_image(game_image, filename, f"Game window capture #{counter}")
-                        print(f"Captured image saved as {filename}")
-                        counter += 1
-                        
-                    elif key == 27:  # ESC key
-                        self.logger.log("Exiting preview mode")
-                        print("Exiting preview mode")
-                        break
-                        
-                    elif key == ord('r'):  # R key to refresh window
-                        self.logger.log("Refreshing window")
-                        if not window_capture.find_window():
-                            self.logger.log("Could not find window after refresh", level="ERROR")
-                            break
-                        window_capture.activate_window()
-                        
-                else:
-                    self.logger.log("Failed to capture game image", level="WARNING")
-                    time.sleep(0.1)  # Wait before trying again
-                    
-            except KeyboardInterrupt:
-                self.logger.log("Preview interrupted by user")
-                print("Preview interrupted by user")
-                break
-                
-            except Exception as e:
-                self.logger.log_error(f"Error in preview loop: {e}", e)
-                print(f"Error: {e}")
-                time.sleep(1)  # Wait before trying again
-            
-            # Small delay to prevent high CPU usage
-            time.sleep(0.01)
-        
-        # Clean up
-        cv2.destroyAllWindows()
-        self.logger.log("Preview mode ended")
-
     def _setup_from_calibration(self):
-        """Setup bot from loaded calibration data"""
+        """Setup from calibration data"""
         self.game_window = self.calibration_data['game_window']
         self.screen_regions = self.calibration_data['screen_regions']
-        self.calibrated_coords = self.calibration_data['calibrated_coords']
-        self.system_bars = self.calibration_data.get('system_bars', {
-            'top_bar_height': 40,
-            'bottom_bar_height': 40,
-            'side_margin': 0
-        })
-        
-        self.logger.log("Loaded calibration data:")
-        self.logger.log(f"  Game window: {self.game_window['width']}x{self.game_window['height']} at ({self.game_window['left']}, {self.game_window['top']})")
-        self.logger.log(f"  System bars: {self.system_bars}")
-        self.logger.log(f"  Screen regions: {len(self.screen_regions)} regions defined")
-
+    
     def _setup_defaults(self):
-        """Setup default values if no calibration file"""
-        self.system_bars = {
-            'top_bar_height': 40,
-            'bottom_bar_height': 40,
-            'side_margin': 0
-        }
+        """Setup default values"""
         self.game_window = {
             'left': 0,
-            'top': self.system_bars['top_bar_height'],
+            'top': 40,
             'width': 1920,
-            'height': 1080 - self.system_bars['top_bar_height'] - self.system_bars['bottom_bar_height']
+            'height': 1000
         }
-        self.screen_regions = self._get_default_regions()
-        self.calibrated_coords = {}
-        
-        self.logger.log("Using default calibration values")
-        self.logger.log(f"  Game window: {self.game_window['width']}x{self.game_window['height']} at ({self.game_window['left']}, {self.game_window['top']})")   
-
-    def _get_default_regions(self):
-        """Get default screen regions"""
-        return {
-            'game_window': (2, 24, 1913, 1008),
-            'player_card1': (929, 673, 60, 80),
-            'player_card2': (1003, 663, 60, 80),
-            'flop_cards': [
-                (778, 441, 70, 90),
-                (870, 441, 70, 90),
-                (964, 441, 70, 90)
-            ],
-            'turn_card': (1061, 441, 70, 90),
-            'river_card': (1139, 441, 70, 90),
+        self.screen_regions = {
+            'player_card1': (899, 628, 60, 80),
+            'player_card2': (973, 628, 60, 80),
+            'flop_cards': [(540, 450, 70, 90), (620, 450, 70, 90), (700, 450, 70, 90)],
+            'turn_card': (780, 450, 70, 90),
+            'river_card': (860, 450, 70, 90),
             'action_buttons': {
-                'fold': (736, 976, 120, 60),
-                'check': (1089, 976, 120, 60),
-                'bet': (1472, 976, 120, 60),
-            },
-            'chips_display': (50, 50, 200, 50),
-            'timer': (1700, 50, 150, 50),
+                'fold': (1230, 700, 100, 40),
+                'check': (1230, 700, 100, 40),
+                'call': (1230, 700, 100, 40),
+                'raise': (1350, 700, 100, 40),
+                'all_in': (1470, 700, 100, 40)
+            }
         }
     
-    def test_regions(self):
-        """Test screen regions by drawing rectangles on screenshot"""
-        self.logger.log("Testing screen regions")
-        
-        # Take full screen screenshot
-        full_screen_img = self.screenshot_manager.capture_full_screen()
-        if full_screen_img is None:
-            self.logger.log("Failed to take full screen screenshot", level="ERROR")
-            return
-        
-        # Draw regions
-        test_img = self._draw_regions_on_image(full_screen_img)
-        
-        # Save images
-        self.logger.save_image(test_img, "region_test_full.png", "Full screen region test")
-        self.logger.log("Full screen region test image saved as 'region_test_full.png'")
-        
-        # Save game window only
-        gw_left = self.game_window['left']
-        gw_top = self.game_window['top']
-        gw_right = gw_left + self.game_window['width']
-        gw_bottom = gw_top + self.game_window['height']
-        
-        game_img = test_img[gw_top:gw_bottom, gw_left:gw_right]
-        self.logger.save_image(game_img, "region_test_game.png", "Game window only region test")
-        self.logger.log("Game window only test image saved as 'region_test_game.png'")
-        
-        # Show images
-        try:
-            cv2.imshow('Screen Regions Test (Full Screen)', test_img)
-            cv2.imshow('Screen Regions Test (Game Window)', game_img)
-            print("Press any key to close image windows...")
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
-        except:
-            self.logger.log("Could not display images. Check saved files.", level="WARNING")
-
     def test_card_detection(self):
-        """Test card detection without playing"""
-        self.logger.log("Testing card detection")
+        """Test the improved card detection system on actual game screen"""
+        # Activate the game window first
+        self.window_detector.activate_game_window()
         
-        # Take screenshot
-        img = self.screenshot_manager.capture_game_window()
-        if img is None:
-            self.logger.log("Failed to take screenshot", level="ERROR")
+        # Take a screenshot of the game window
+        screenshot = self.screenshot_manager.capture_game_window()
+        if screenshot is None:
+            self.logger.log("Failed to capture screen for card detection test", level="ERROR")
             return
         
-        # Detect cards
-        player_cards = self.card_detector.get_player_cards(img, self.screen_regions, self.game_window)
-        community_cards = self.card_detector.get_community_cards(img, self.screen_regions, self.game_window)
+        # Save the screenshot for debugging
+        cv2.imwrite('game_screenshot_test.png', screenshot)
         
-        # Log card detection
-        self.logger.log_card_detection(player_cards, community_cards)
+        # Test player cards
+        player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
         
-        # Validate cards
-        player_cards, community_cards = self.card_detector.validate_cards(player_cards, community_cards)
+        # Test community cards
+        community_cards = self.card_detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
         
-        print(f"Detected player cards: {player_cards}")
-        print(f"Detected community cards: {community_cards}")
+        # Display results
+        print(f"\n=== Card Detection Test Results ===")
+        print(f"Player Cards: {player_cards}")
+        print(f"Community Cards: {community_cards}")
+        print(f"Total Cards Detected: {len(player_cards) + len(community_cards)}")
         
-        # Test card conversion
-        for card in player_cards + community_cards:
-            try:
-                rank, suit = self.game_simulator.card_to_values(card)
-                print(f"Card {card} -> Rank: {rank}, Suit: {suit}")
-                self.logger.log(f"Card conversion test: {card} -> Rank: {rank}, Suit: {suit}")
-            except Exception as e:
-                self.logger.log_error(f"Error converting card {card}", e)
-
-    def calibrate_screen(self):
-        """Interactive calibration to find exact screen positions"""
-        self.logger.log("Starting screen calibration")
-        print("=== Screen Calibration Mode ===")
-        print("Move your mouse to the specified locations and press ENTER when ready")
+        # Detailed analysis of each card region
+        print(f"\n=== Detailed Card Analysis ===")
         
-        # Import here to avoid circular imports
-        from utils import ScreenCalibrator
+        # Analyze player cards
+        for i, region_name in enumerate(['player_card1', 'player_card2']):
+            x, y, w, h = self.screen_regions[region_name]
+            rel_x = x - self.game_window['left']
+            rel_y = y - self.game_window['top']
+            
+            # Extract card image
+            card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+            
+            # Save extracted card image for debugging
+            cv2.imwrite(f'extracted_{region_name}.png', card_img)
+            
+            # Check if card is present
+            is_present = self.card_detector._is_card_present(card_img)
+            print(f"\n{region_name}:")
+            print(f"  Position: ({rel_x}, {rel_y}) Size: {w}x{h}")
+            print(f"  Card present: {is_present}")
+            
+            if is_present:
+                # Test card detection on this specific image
+                matched_card = self.card_detector._detect_card(card_img, region_name)
+                print(f"  Detected: {matched_card}")
+                
+                # Debug: Show top template matches
+                debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+                if 'top_matches' in debug_results:
+                    print(f"  Top 5 template matches:")
+                    for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                        print(f"    {j+1}. {template_name}: {score:.3f}")
+            else:
+                print(f"  Detection skipped - no card present")
+            
+            print(f"  Image saved as: extracted_{region_name}.png")
         
-        calibrator = ScreenCalibrator()
-        calibrated_coords, calibrated_window = calibrator.calibrate()
-        
-        # Update regions based on calibration
-        self._update_regions_from_calibration(calibrated_coords)
-        
-        # Save calibration
-        self._save_calibration(calibrated_coords, calibrated_window)
-        
-        print("Calibration complete!")
-        self.logger.log("Screen calibration completed successfully")
-
-    def _draw_regions_on_image(self, img):
-        """Draw all regions on image"""
-        test_img = img.copy()
-        
-        # Draw game window boundary
-        gw_left = self.game_window['left']
-        gw_top = self.game_window['top']
-        gw_right = gw_left + self.game_window['width']
-        gw_bottom = gw_top + self.game_window['height']
-        
-        cv2.rectangle(test_img, (gw_left, gw_top), (gw_right, gw_bottom), (255, 255, 255), 4)
-        cv2.putText(test_img, 'GAME WINDOW', (gw_left, gw_top - 10), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        # Draw calibrated points
-        if self.calibrated_coords:
-            for point_name, coords in self.calibrated_coords.items():
-                x, y = coords
-                cv2.circle(test_img, (x, y), 8, (0, 255, 255), -1)
-                cv2.putText(test_img, point_name, (x + 10, y), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        
-        # Draw card regions
-        colors = {
-            'player_card1': (255, 0, 0),
-            'player_card2': (0, 255, 0),
-            'flop_cards': [(0, 0, 255), (255, 255, 0), (255, 0, 255)],
-            'turn_card': (0, 255, 255),
-            'river_card': (128, 128, 128),
-        }
-        
-        # Draw player cards
-        for card_name, color in [('player_card1', colors['player_card1']), 
-                                ('player_card2', colors['player_card2'])]:
-            x, y, w, h = self.screen_regions[card_name]
-            x2, y2 = x + w, y + h
-            cv2.rectangle(test_img, (x, y), (x2, y2), color, 2)
-            cv2.putText(test_img, card_name, (x, y - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        
-        # Draw flop cards
-        for i, (coords, color) in enumerate(zip(self.screen_regions['flop_cards'], colors['flop_cards'])):
+        # Analyze community cards
+        for i, coords in enumerate(self.screen_regions['flop_cards']):
             x, y, w, h = coords
-            x2, y2 = x + w, y + h
-            cv2.rectangle(test_img, (x, y), (x2, y2), color, 2)
-            cv2.putText(test_img, f'flop_{i+1}', (x, y - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            rel_x = x - self.game_window['left']
+            rel_y = y - self.game_window['top']
+            region_name = f"flop_{i+1}"
+            
+            # Extract card image
+            card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+            
+            # Save extracted card image for debugging
+            cv2.imwrite(f'extracted_{region_name}.png', card_img)
+            
+            # Check if card is present
+            is_present = self.card_detector._is_card_present(card_img)
+            print(f"\n{region_name}:")
+            print(f"  Position: ({rel_x}, {rel_y}) Size: {w}x{h}")
+            print(f"  Card present: {is_present}")
+            
+            if is_present:
+                # Test card detection on this specific image
+                matched_card = self.card_detector._detect_card(card_img, region_name)
+                print(f"  Detected: {matched_card}")
+                
+                # Debug: Show top template matches
+                debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+                if 'top_matches' in debug_results:
+                    print(f"  Top 5 template matches:")
+                    for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                        print(f"    {j+1}. {template_name}: {score:.3f}")
+            else:
+                print(f"  Detection skipped - no card present")
+            
+            print(f"  Image saved as: extracted_{region_name}.png")
+        
+        # Analyze turn card
+        x, y, w, h = self.screen_regions['turn_card']
+        rel_x = x - self.game_window['left']
+        rel_y = y - self.game_window['top']
+        region_name = "turn"
+        
+        # Extract card image
+        card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+        
+        # Save extracted card image for debugging
+        cv2.imwrite(f'extracted_{region_name}.png', card_img)
+        
+        # Check if card is present
+        is_present = self.card_detector._is_card_present(card_img)
+        print(f"\n{region_name}:")
+        print(f"  Position: ({rel_x}, {rel_y}) Size: {w}x{h}")
+        print(f"  Card present: {is_present}")
+        
+        if is_present:
+            # Test card detection on this specific image
+            matched_card = self.card_detector._detect_card(card_img, region_name)
+            print(f"  Detected: {matched_card}")
+            
+            # Debug: Show top template matches
+            debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+            if 'top_matches' in debug_results:
+                print(f"  Top 5 template matches:")
+                for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                    print(f"    {j+1}. {template_name}: {score:.3f}")
+        else:
+            print(f"  Detection skipped - no card present")
+        
+        print(f"  Image saved as: extracted_{region_name}.png")
+        
+        # Analyze river card
+        x, y, w, h = self.screen_regions['river_card']
+        rel_x = x - self.game_window['left']
+        rel_y = y - self.game_window['top']
+        region_name = "river"
+        
+        # Extract card image
+        card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+        
+        # Save extracted card image for debugging
+        cv2.imwrite(f'extracted_{region_name}.png', card_img)
+        
+        # Check if card is present
+        is_present = self.card_detector._is_card_present(card_img)
+        print(f"\n{region_name}:")
+        print(f"  Position: ({rel_x}, {rel_y}) Size: {w}x{h}")
+        print(f"  Card present: {is_present}")
+        
+        if is_present:
+            # Test card detection on this specific image
+            matched_card = self.card_detector._detect_card(card_img, region_name)
+            print(f"  Detected: {matched_card}")
+            
+            # Debug: Show top template matches
+            debug_results = self.card_detector.debug_card_detection(card_img, region_name)
+            if 'top_matches' in debug_results:
+                print(f"  Top 5 template matches:")
+                for j, (template_name, score) in enumerate(debug_results['top_matches'][:5]):
+                    print(f"    {j+1}. {template_name}: {score:.3f}")
+        else:
+            print(f"  Detection skipped - no card present")
+        
+        print(f"  Image saved as: extracted_{region_name}.png")
+        
+        # Create a visual test image with regions marked
+        test_img = screenshot.copy()
+        
+        # Draw player card regions
+        for i, region_name in enumerate(['player_card1', 'player_card2']):
+            x, y, w, h = self.screen_regions[region_name]
+            rel_x = x - self.game_window['left']
+            rel_y = y - self.game_window['top']
+            
+            # Extract card image to check if present
+            card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+            is_present = self.card_detector._is_card_present(card_img)
+            
+            # Use green if card is present, red if not
+            color = (0, 255, 0) if is_present else (0, 0, 255)
+            
+            cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), color, 2)
+            
+            # Add label
+            matched = player_cards[i] if i < len(player_cards) else "None"
+            status = "Present" if is_present else "Absent"
+            cv2.putText(test_img, f"{region_name}: {matched} ({status})", 
+                    (rel_x, rel_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # Draw community card regions
+        for i, coords in enumerate(self.screen_regions['flop_cards']):
+            x, y, w, h = coords
+            rel_x = x - self.game_window['left']
+            rel_y = y - self.game_window['top']
+            region_name = f"flop_{i+1}"
+            
+            # Extract card image to check if present
+            card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+            is_present = self.card_detector._is_card_present(card_img)
+            
+            # Use blue if card is present, red if not
+            color = (255, 0, 0) if is_present else (0, 0, 255)
+            
+            cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), color, 2)
+            
+            # Add label
+            matched = community_cards[i] if i < len(community_cards) else "None"
+            status = "Present" if is_present else "Absent"
+            cv2.putText(test_img, f"{region_name}: {matched} ({status})", 
+                    (rel_x, rel_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         
         # Draw turn and river
-        for card_name, color in [('turn_card', colors['turn_card']), 
-                                ('river_card', colors['river_card'])]:
-            x, y, w, h = self.screen_regions[card_name]
-            x2, y2 = x + w, y + h
-            cv2.rectangle(test_img, (x, y), (x2, y2), color, 2)
-            cv2.putText(test_img, card_name, (x, y - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-        
-        # Draw action buttons
-        button_colors = {
-            'fold': (0, 0, 255),
-            'check': (0, 255, 0),
-            'bet': (255, 255, 0),
-        }
-        
-        for button_name, color in button_colors.items():
-            x, y, w, h = self.screen_regions['action_buttons'][button_name]
-            x2, y2 = x + w, y + h
-            cv2.rectangle(test_img, (x, y), (x2, y2), color, 3)
-            cv2.putText(test_img, button_name.upper(), (x, y - 10), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-        
-        return test_img
-
-    def _update_regions_from_calibration(self, calibrated_coords):
-        """Update screen regions based on calibration points"""
-        self.logger.log("Updating screen regions from calibration")
-        
-        # Import here to avoid circular imports
-        from utils import RegionUpdater
-        
-        updater = RegionUpdater()
-        self.screen_regions = updater.update_regions(calibrated_coords, self.screen_regions)
-        
-        self.logger.log("Screen regions updated successfully")
-
-    def _save_calibration(self, calibrated_coords, calibrated_window):
-        """Save calibration data to file"""
-        calibration_data = {
-            'screen_resolution': (1920, 1080),
-            'system_bars': self.system_bars,
-            'game_window': self.game_window,
-            'calibrated_coords': calibrated_coords,
-            'calibrated_window': calibrated_window,
-            'screen_regions': self.screen_regions
-        }
-        
-        with open(self.calibration_file, 'w') as f:
-            json.dump(calibration_data, f, indent=2)
-        
-        self.logger.save_calibration_data(calibration_data)
-        self.logger.log(f"Calibration saved to {self.calibration_file}")
-
-    def run_bot(self, hands_to_play: int = 10):
-        """Run the bot for specified number of hands"""
-        self.logger.log(f"Starting Governor of Poker bot - will play {hands_to_play} hands")
-        self.logger.log(f"Game window: {self.game_window['width']}x{self.game_window['height']} at ({self.game_window['left']}, {self.game_window['top']})")
-        print("Press Ctrl+C to stop the bot at any time")
-        
-        try:
-            for i in range(hands_to_play):
-                print(f"\n=== Hand {i + 1} ===")
-                self.logger.log(f"Starting hand {i + 1} of {hands_to_play}")
-                
-                try:
-                    self.play_hand()
-                    time.sleep(3)  # Wait between hands
-                    self.logger.log(f"Completed hand {i + 1}, waiting 3 seconds")
-                    
-                except KeyboardInterrupt:
-                    self.logger.log("Hand interrupted by user")
-                    print("Hand interrupted by user")
-                    break
-                    
-                except Exception as e:
-                    self.logger.log_error(f"Error in hand {i + 1}", e)
-                    print(f"Error in hand {i + 1}: {e}")
-                    time.sleep(2)  # Wait before trying next hand
-                    
-        except KeyboardInterrupt:
-            self.logger.log("Bot stopped by user")
-            print("\nBot stopped by user")
+        for i, region_name in enumerate(['turn_card', 'river_card']):
+            x, y, w, h = self.screen_regions[region_name]
+            rel_x = x - self.game_window['left']
+            rel_y = y - self.game_window['top']
             
-        except Exception as e:
-            self.logger.log_error(f"Fatal error in bot execution", e)
-            print(f"Fatal error: {e}")
+            # Extract card image to check if present
+            card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+            is_present = self.card_detector._is_card_present(card_img)
             
-        finally:
-            self.logger.log(f"Bot finished. Played {i + 1} hands out of {hands_to_play}")
-            print("Bot finished")
+            # Use blue if card is present, red if not
+            color = (255, 0, 0) if is_present else (0, 0, 255)
+            
+            cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), color, 2)
+            
+            # Add label
+            matched = community_cards[3+i] if (3+i) < len(community_cards) else "None"
+            status = "Present" if is_present else "Absent"
+            label = "turn" if region_name == 'turn_card' else "river"
+            cv2.putText(test_img, f"{label}: {matched} ({status})", 
+                    (rel_x, rel_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # Save the annotated image
+        cv2.imwrite('card_detection_test_results.png', test_img)
+        print(f"\n=== Visual Test Results ===")
+        print(f"Annotated screenshot saved as: card_detection_test_results.png")
+        print(f"Open this file to see the detected cards and their presence status")
+        
+        # Summary
+        print(f"\n=== Summary ===")
+        print(f"Total player cards detected: {len(player_cards)}/2")
+        print(f"Total community cards detected: {len(community_cards)}/5")
+        print(f"Total cards detected: {len(player_cards) + len(community_cards)}/7")
+        print(f"\nGenerated files:")
+        print(f"  - game_screenshot_test.png (full screenshot)")
+        print(f"  - card_detection_test_results.png (with detection results)")
+        print(f"  - extracted_*.png (individual card images)")
+        print(f"\nCheck the extracted_*.png files to see what the bot is trying to match")
+        print(f"Green/Blue rectangles indicate cards that are present")
+        print(f"Red rectangles indicate areas where no card was detected")
 
-    def _is_strong_hand(self, player_cards):
-        """Check if player has a strong hand"""
-        if not player_cards or len(player_cards) < 2:
-            return False
+    def play_hand(self):
+        """Play a single hand of poker"""
+        # Activate the game window first
+        self.window_detector.activate_game_window()
+        
+        # Take screenshot
+        screenshot = self.screenshot_manager.capture_game_window()
+        if screenshot is None:
+            self.logger.log("Failed to capture screen", level="ERROR")
+            return
+        
+        # Detect cards using improved template matching
+        player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
+        community_cards = self.card_detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
+        
+        # Show confirmation window if enabled
+        if config.BOT_BEHAVIOR.get('enable_card_confirmation', True):
+            confirmation_result = confirm_cards(player_cards, community_cards)
+            
+            if confirmation_result['action'] == 'fold':
+                self._take_action('fold')
+                return
+            elif confirmation_result['action'] == 'skip':
+                # Use detected cards as-is
+                final_player_cards = player_cards
+                final_community_cards = community_cards
+            else:
+                # Use confirmed/corrected cards
+                final_player_cards = confirmation_result['player_cards']
+                final_community_cards = confirmation_result['community_cards']
+        else:
+            # Use detected cards directly without confirmation
+            final_player_cards = player_cards
+            final_community_cards = community_cards
+        
+        # Simple decision making based on confirmed cards
+        if len(final_player_cards) == 2:
+            # Calculate hand strength
+            all_cards = final_player_cards + final_community_cards
+            hand_strength = self._evaluate_hand_strength(all_cards)
+            
+            # Make decision based on hand strength
+            if hand_strength > 0.7:
+                self._take_action('raise')
+            elif hand_strength > 0.4:
+                self._take_action('call')
+            else:
+                self._take_action('fold')
+        else:
+            self.logger.log("Can't decide - player hands not recognized properly", level="WARNING")
+            self._take_action('fold')
+    
+    def _evaluate_hand_strength(self, cards):
+        """Simple hand strength evaluation"""
+        # This is a simplified version - you can integrate with your odds calculator
+        if not cards:
+            return 0.0
+        
+        # Basic hand strength calculation
+        strength = 0.0
         
         # Check for pairs, high cards, etc.
-        card1, card2 = player_cards
+        ranks = [card[0] for card in cards if card]
         
-        # Pair
-        if card1[0] == card2[0]:
-            self.logger.log(f"Strong hand detected: Pair of {card1[0]}s")
-            return True
+        # High cards bonus
+        high_cards = ['A', 'K', 'Q', 'J']
+        for rank in ranks:
+            if rank in high_cards:
+                strength += 0.2
         
-        # Two high cards (A, K, Q, J)
-        high_ranks = ['A', 'K', 'Q', 'J']
-        if card1[0] in high_ranks and card2[0] in high_ranks:
-            self.logger.log(f"Strong hand detected: {card1[0]}{card1[1]} and {card2[0]}{card2[1]} (both high cards)")
-            return True
+        # Pair bonus
+        if len(ranks) == len(set(ranks)):
+            strength += 0.3
         
-        # Ace with anything
-        if card1[0] == 'A' or card2[0] == 'A':
-            self.logger.log("Strong hand detected: Ace with another card")
-            return True
-        
-        return False
-
-    def _is_weak_hand(self, player_cards):
-        """Check if player has a weak hand"""
-        if not player_cards or len(player_cards) < 2:
-            return True
-        
-        card1, card2 = player_cards
-        
-        # Low cards (2-6)
-        low_ranks = ['2', '3', '4', '5', '6']
-        if card1[0] in low_ranks and card2[0] in low_ranks:
-            # Check if they're not suited or connected
-            if card1[1] != card2[1]:  # Not suited
-                # Check if not connected (e.g., 2 and 4)
-                rank_values = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6}
-                if card1[0] in rank_values and card2[0] in rank_values:
-                    if abs(rank_values[card1[0]] - rank_values[card2[0]]) > 1:
-                        self.logger.log(f"Weak hand detected: {card1[0]}{card1[1]} and {card2[0]}{card2[1]} (low, unconnected, unsuited)")
-                        return True
-        
-        return False
-
-    def _click_button(self, button_name: str):
-        """Simulate mouse click on specified button"""
-        if button_name in self.screen_regions['action_buttons']:
-            x, y, w, h = self.screen_regions['action_buttons'][button_name]
-            center_x = x + w // 2
-            center_y = y + h // 2
+        return min(strength, 1.0)
+    
+    def _take_action(self, action):
+        """Take a poker action"""
+        if action in self.screen_regions['action_buttons']:
+            x, y, w, h = self.screen_regions['action_buttons'][action]
+            # Add some randomness to avoid detection
+            x_offset = random.randint(-5, 5)
+            y_offset = random.randint(-5, 5)
+            pyautogui.click(x + x_offset, y + y_offset)
+            time.sleep(1)  # Wait for action to complete
+        else:
+            self.logger.log(f"Unknown action: {action}", level="WARNING")
+    
+    def run_bot(self, hands_to_play=10):
+        """Run the bot continuously"""
+        for i in range(hands_to_play):
+            self.play_hand()
             
-            self.logger.log(f"Clicking {button_name} button at ({center_x}, {center_y})")
-            print(f"Clicking {button_name} button at ({center_x}, {center_y})")
+            # Wait between hands
+            time.sleep(random.uniform(3, 7))
+    
+    def test_regions(self):
+        """Test screen regions"""
+        # Activate the game window first
+        self.window_detector.activate_game_window()
+        
+        screenshot = self.screenshot_manager.capture_game_window()
+        
+        if screenshot is not None:
+            # Draw rectangles around regions
+            test_img = screenshot.copy()
             
-            try:
-                # Move mouse to position and click
-                pyautogui.moveTo(center_x, center_y, duration=0.2)
-                pyautogui.click()
-                time.sleep(0.5)  # Small delay to allow action to register
-                self.logger.log(f"Successfully clicked {button_name} button")
-            except Exception as e:
-                self.logger.log_error(f"Failed to click {button_name} button", e)
+            # Draw player card regions
+            for region_name in ['player_card1', 'player_card2']:
+                x, y, w, h = self.screen_regions[region_name]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 255, 0), 2)
+            
+            # Draw community card regions
+            for coords in self.screen_regions['flop_cards']:
+                x, y, w, h = coords
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (255, 0, 0), 2)
+            
+            # Draw turn and river
+            for region_name in ['turn_card', 'river_card']:
+                x, y, w, h = self.screen_regions[region_name]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 0, 255), 2)
+            
+            # Save test image
+            cv2.imwrite('test_regions.png', test_img)
+            print("Test regions image saved as test_regions.png")
+    
+    def calibrate_screen(self):
+        """Calibrate screen regions"""
+        print("Screen calibration not implemented in this version")
+        print("Please manually edit the screen_calibration.json file")
+    
+    def preview_game_window(self):
+        """Preview the game window"""
+        # Activate the game window first
+        self.window_detector.activate_game_window()
+        
+        screenshot = self.screenshot_manager.capture_game_window()
+        
+        if screenshot is not None:
+            cv2.imshow('Game Window Preview', screenshot)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
         else:
-            self.logger.log(f"Unknown button: {button_name}", level="ERROR")
-            print(f"Unknown button: {button_name}")
+            self.logger.log("Failed to capture game window", level="ERROR")
 
 
-    def simple_card_detection(self, img):
-        """Simple card detection using basic image processing"""
-        print("Using simple card detection...")
+class SimpleOddsCalculator:
+    """Simple odds calculator for fallback"""
+    
+    def calculate_win_probability(self, player_cards, community_cards):
+        """Calculate simple win probability"""
+        # This is a placeholder - implement proper odds calculation
+        if not player_cards:
+            return 0.0
         
-        # Get player card regions
-        x1, y1, w1, h1 = self.screen_regions['player_card1']
-        x2, y2, w2, h2 = self.screen_regions['player_card2']
+        # Basic calculation based on card values
+        strength = 0.0
+        for card in player_cards:
+            if card:
+                rank = card[0]
+                if rank == 'A':
+                    strength += 0.3
+                elif rank in ['K', 'Q', 'J']:
+                    strength += 0.2
+                elif rank.isdigit() and int(rank) >= 10:
+                    strength += 0.1
         
-        # Convert to relative coordinates
-        rel_x1 = x1 - self.game_window['left']
-        rel_y1 = y1 - self.game_window['top']
-        rel_x2 = x2 - self.game_window['left']
-        rel_y2 = y2 - self.game_window['top']
-        
-        # Extract card images
-        card1_img = img[rel_y1:rel_y1+h1, rel_x1:rel_x1+w1]
-        card2_img = img[rel_y2:rel_y2+h2, rel_x2:rel_x2+w2]
-        
-        # Save for debugging
-        self.logger.save_image(card1_img, "simple_card1.png", "Simple detection card 1")
-        self.logger.save_image(card2_img, "simple_card2.png", "Simple detection card 2")
-        
-        # Simple color-based detection
-        def get_dominant_color(image):
-            """Get dominant color from image"""
-            pixels = image.reshape(-1, 3)
-            unique_colors, counts = np.unique(pixels, axis=0, return_counts=True)
-            dominant_color = unique_colors[np.argmax(counts)]
-            return dominant_color
-        
-        # Analyze card colors
-        color1 = get_dominant_color(card1_img)
-        color2 = get_dominant_color(card2_img)
-        
-        print(f"Card 1 dominant color: {color1}")
-        print(f"Card 2 dominant color: {color2}")
-        
-        # Simple heuristic: if card has red, it's hearts/diamonds, else clubs/spades
-        def is_red_card(color):
-            return color[0] > 100 and color[1] < 100 and color[2] < 100
-        
-        card1_red = is_red_card(color1)
-        card2_red = is_red_card(color2)
-        
-        # Instead of defaulting to specific cards, return generic cards based on color
-        # This is more honest than making up specific cards
-        if card1_red:
-            card1 = "Ah"  # Generic red card
-        else:
-            card1 = "As"  # Generic black card
-        
-        if card2_red:
-            card2 = "Kh"  # Generic red card
-        else:
-            card2 = "Ks"  # Generic black card
-        
-        print(f"Simple detection: Card1={card1}, Card2={card2}")
-        return [card1, card2]
+        return min(strength, 1.0)

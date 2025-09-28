@@ -21,16 +21,15 @@ def main():
         
         print(f"Game window: {bot.game_window['width']}x{bot.game_window['height']} at ({bot.game_window['left']}, {bot.game_window['top']})")
         print()
-        print("Choose an option:")
-        print("1. Test screen regions")
-        print("2. Test card detection")
-        print("3. Calibrate screen")
-        print("4. Preview game window")
-        print("5. Play single hand")
-        print("6. Run bot continuously")
-        print("7. Exit")
         
         while True:
+            print("1. Test screen regions")
+            print("2. Test card detection")
+            print("3. Calibrate screen")
+            print("4. Preview game window")
+            print("5. Play single hand")
+            print("6. Run bot continuously")
+            print("7. Exit")
             choice = input("\nEnter your choice (1-7): ").strip()
             logger.log(f"User selected option: {choice}")
             
