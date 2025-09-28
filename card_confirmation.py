@@ -57,19 +57,9 @@ class CardConfirmationWindow:
         self.community_cards = detected_community_cards.copy() if detected_community_cards else []
         self.extracted_images = extracted_images.copy() if extracted_images else {}
         
-        # Load template images
-        self.load_template_images()
-        
-        # Create window in a separate thread to avoid blocking
+        # Create window on main thread (Tk must run in main thread)
         self.result = None
-        thread = threading.Thread(target=self._create_window)
-        thread.daemon = True
-        thread.start()
-        
-        # Wait for result
-        while self.result is None:
-            time.sleep(0.1)
-        
+        self._create_window()
         return self.result
     
     def _create_window(self):
@@ -82,6 +72,9 @@ class CardConfirmationWindow:
         
         # Apply base theme
         self.root.configure(bg=self.theme_bg)
+        
+        # Load template images (requires an active Tk root)
+        self.load_template_images()
         
         # Main frame
         main_frame = ttk.Frame(self.root, padding="10")

@@ -411,15 +411,33 @@ class GovernorOfPokerBot:
     
     def _take_action(self, action):
         """Take a poker action"""
-        if action in self.screen_regions['action_buttons']:
-            x, y, w, h = self.screen_regions['action_buttons'][action]
+        buttons = self.screen_regions.get('action_buttons', {})
+        target = buttons.get(action)
+        
+        # Fallback mappings if specific action not present
+        if target is None:
+            fallback_order = {
+                'call': ['check', 'raise', 'all_in', 'fold'],
+                'raise': ['bet', 'all_in', 'call', 'check'],
+                'check': ['call', 'fold'],
+                'fold': [],
+                'all_in': ['raise', 'bet']
+            }
+            for alt in fallback_order.get(action, []):
+                if alt in buttons:
+                    self.logger.log(f"Fallback: mapping '{action}' to '{alt}'", level="WARNING")
+                    target = buttons[alt]
+                    break
+        
+        if target is not None:
+            x, y, w, h = target
             # Add some randomness to avoid detection
             x_offset = random.randint(-5, 5)
             y_offset = random.randint(-5, 5)
             pyautogui.click(x + x_offset, y + y_offset)
             time.sleep(1)  # Wait for action to complete
         else:
-            self.logger.log(f"Unknown action: {action}", level="WARNING")
+            self.logger.log(f"No available button for action: {action}", level="ERROR")
     
     def run_bot(self, hands_to_play=10):
         """Run the bot continuously"""
