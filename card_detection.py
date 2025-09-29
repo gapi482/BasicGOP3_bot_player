@@ -153,7 +153,7 @@ class AdvancedTemplateMatcher:
         return enhanced
 
     def match_card(self, card_image: np.ndarray, confidence_threshold: float = 0.3) -> Optional[str]:
-        """Match a card image against templates with simplified, reliable approach"""
+        """Match a card image against templates using COLOR (not grayscale) for better accuracy"""
         if card_image is None or card_image.size == 0:
             return None
         
@@ -161,11 +161,11 @@ class AdvancedTemplateMatcher:
         best_confidence = 0.0
         
         try:
-            # Convert card image to grayscale for consistent matching
-            if len(card_image.shape) == 3:
-                card_gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
+            # Ensure 3-channel color for template matching
+            if len(card_image.shape) == 2:
+                card_color = cv2.cvtColor(card_image, cv2.COLOR_GRAY2BGR)
             else:
-                card_gray = card_image.copy()
+                card_color = card_image.copy()
             
             # Test against all templates using simple, reliable method
             for card_name, template_dict in self.templates.items():
@@ -174,18 +174,18 @@ class AdvancedTemplateMatcher:
                 if template is None:
                             continue
                         
-                # Convert template to grayscale
-                if len(template.shape) == 3:
-                    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+                # Ensure template is 3-channel color
+                if len(template.shape) == 2:
+                    template_color = cv2.cvtColor(template, cv2.COLOR_GRAY2BGR)
                 else:
-                    template_gray = template.copy()
+                    template_color = template.copy()
                 
                 # Resize template to match card image size
-                if card_gray.shape != template_gray.shape:
-                    template_gray = cv2.resize(template_gray, (card_gray.shape[1], card_gray.shape[0]))
+                if card_color.shape[:2] != template_color.shape[:2]:
+                    template_color = cv2.resize(template_color, (card_color.shape[1], card_color.shape[0]))
                 
                 # Use normalized correlation coefficient for best results
-                result = cv2.matchTemplate(card_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+                result = cv2.matchTemplate(card_color, template_color, cv2.TM_CCOEFF_NORMED)
                 _, max_val, _, _ = cv2.minMaxLoc(result)
                 
                 # Update best match
@@ -328,11 +328,11 @@ class AdvancedTemplateMatcher:
         
         results = {}
         
-        # Convert to grayscale
-        if len(card_image.shape) == 3:
-            card_gray = cv2.cvtColor(card_image, cv2.COLOR_BGR2GRAY)
+        # Ensure color image
+        if len(card_image.shape) == 2:
+            card_color = cv2.cvtColor(card_image, cv2.COLOR_GRAY2BGR)
         else:
-            card_gray = card_image.copy()
+            card_color = card_image.copy()
         
         # Test against all templates
         template_scores = {}
@@ -341,18 +341,18 @@ class AdvancedTemplateMatcher:
             if template is None:
                 continue
             
-            # Convert template to grayscale
-            if len(template.shape) == 3:
-                template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+            # Ensure color template
+            if len(template.shape) == 2:
+                template_color = cv2.cvtColor(template, cv2.COLOR_GRAY2BGR)
             else:
-                template_gray = template.copy()
+                template_color = template.copy()
             
             # Resize template to match card image size
-            if card_gray.shape != template_gray.shape:
-                template_gray = cv2.resize(template_gray, (card_gray.shape[1], card_gray.shape[0]))
+            if card_color.shape[:2] != template_color.shape[:2]:
+                template_color = cv2.resize(template_color, (card_color.shape[1], card_color.shape[0]))
             
             # Calculate match score
-            result = cv2.matchTemplate(card_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+            result = cv2.matchTemplate(card_color, template_color, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, _ = cv2.minMaxLoc(result)
             
             template_scores[template_name] = max_val
@@ -419,8 +419,8 @@ class CardDetector:
             else:
                 self.logger.log(f"Flop card {i+1} not present, skipping detection")
         
-        # Only check turn card if flop cards are present (Texas Hold'em rules)
-        if flop_cards_present > 0:
+        # Only check turn card if all 3 flop cards are present
+        if flop_cards_present == 3:
             x, y, w, h = screen_regions['turn_card']
             rel_x = x - game_window['left']
             rel_y = y - game_window['top']

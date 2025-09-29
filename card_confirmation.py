@@ -49,6 +49,18 @@ class CardConfirmationWindow:
         #sr['flop_cards'] = list(config.DEFAULT_SCREEN_REGIONS['flop_cards'])
         #self.screen_regions = sr
         self.card_detector = CardDetector()
+        # If host app wants to run Tk in main thread, they should call start_confirmation_ui()
+        # which will build UI and enter mainloop without blocking CLI inputs.
+
+    def start_confirmation_ui(self):
+        """Create the window and start Tk mainloop on the main thread."""
+        try:
+            if self.root is None or not self.root.winfo_exists():
+                self._build_window()
+            # Start mainloop if not already running
+            self.root.mainloop()
+        except Exception:
+            pass
         
     def load_template_images(self):
         """Load template images for display"""
@@ -65,35 +77,33 @@ class CardConfirmationWindow:
             print(f"Error loading template images: {e}")
     
     def show_confirmation(self, detected_player_cards, detected_table_cards, extracted_images):
-        """Show the card confirmation window"""
+        """Update internal data and return the latest choice; window is managed on main thread."""
+        # Update internal snapshots for Update/New Game actions
         self.player_cards = detected_player_cards.copy() if detected_player_cards else []
         self.table_cards = detected_table_cards.copy() if detected_table_cards else []
         self.extracted_images = extracted_images.copy() if extracted_images else {}
 
+        # If window exists, prefill blanks from the latest detections/images without overwriting user input
         try:
             if self.root is not None and self.root.winfo_exists():
-                try:
-                    self.root.lift()
-                except Exception:
-                    pass
-            else:
-                # Start the Tk window in its own thread to keep CLI responsive
-                def _runner():
-                    self._create_window()
-                self.window_thread = threading.Thread(target=_runner, daemon=True)
-                self.window_thread.start()
+                def _prefill():
+                    player, table = self._detect_from_extracted_or_existing()
+                    self._apply_cards_to_ui(player, table, fill_only_blank=True)
+                self.root.after(0, _prefill)
         except Exception:
             pass
 
-        # Do not block; return a non-committal result
+        # Immediately return the most recent user choice if present; otherwise return current detections
+        if self.result is not None:
+            return dict(self.result)
         return {
             'action': 'skip',
             'player_cards': detected_player_cards or [],
             'table_cards': detected_table_cards or []
         }
     
-    def _create_window(self):
-        """Create the confirmation window"""
+    def _build_window(self):
+        """Build the confirmation window UI (must be called on main thread)."""
         self.root = tk.Tk()
         self.root.title("Card Confirmation")
         self.root.geometry("780x460")
@@ -255,9 +265,7 @@ class CardConfirmationWindow:
                     break
         except Exception:
             pass
-        
-        # Start the GUI
-        self.root.mainloop()
+
     
     def _suit_bg(self, current_value, this_suit):
         """Background color for suit buttons based on selection state."""
@@ -309,6 +317,34 @@ class CardConfirmationWindow:
             for suit, btn in suit_map.items():
                 btn.configure(bg=self._suit_bg(self.table_suits[idx].get(), suit))
 
+    def _apply_cards_to_ui(self, player_cards, table_cards, fill_only_blank=True):
+        """Apply given cards into the UI entries. If fill_only_blank is True, only fill empty fields."""
+        # Player 1
+        if len(player_cards) >= 1 and player_cards[0]:
+            rank = player_cards[0][0].upper()
+            suit = player_cards[0][1].lower()
+            if not fill_only_blank or self.player_card1_rank.get() == '' or self.player_card1_suit.get() == '':
+                self.player_card1_rank.set(rank)
+                self.player_card1_suit.set(suit)
+        # Player 2
+        if len(player_cards) >= 2 and player_cards[1]:
+            rank = player_cards[1][0].upper()
+            suit = player_cards[1][1].lower()
+            if not fill_only_blank or self.player_card2_rank.get() == '' or self.player_card2_suit.get() == '':
+                self.player_card2_rank.set(rank)
+                self.player_card2_suit.set(suit)
+        
+        # Table cards (up to 5)
+        for i in range(min(5, len(self.table_ranks))):
+            if i < len(table_cards) and table_cards[i]:
+                rank = table_cards[i][0].upper()
+                suit = table_cards[i][1].lower()
+                if not fill_only_blank or self.table_ranks[i].get() == '' or self.table_suits[i].get() == '':
+                    self.table_ranks[i].set(rank)
+                    self.table_suits[i].set(suit)
+        
+        self._update_suit_buttons()
+
     def _load_calibration(self):
         """Load calibration file if present."""
         try:
@@ -323,54 +359,52 @@ class CardConfirmationWindow:
         except Exception:
             pass
 
+    # Removed screen capture calls from the Tk thread to avoid GIL/threading issues
     def _capture_screenshot(self):
-        """Capture the current GOP3 game window as BGR numpy array."""
-        try:
-            from utils import GameWindowCapture, WindowDetector
-            # Try to bring window forward softly
-            try:
-                wd = WindowDetector()
-                wd.activate_game_window()
-            except Exception:
-                pass
-            gwc = GameWindowCapture("GOP3")
-            # Try locate window
-            try:
-                gwc.find_window()
-            except Exception:
-                pass
-            img = None
-            try:
-                img = gwc.capture_game_image()
-            except Exception:
-                # fallback try direct capture
-                try:
-                    img = gwc.capture_window_image()
-                except Exception:
-                    img = None
-            return img
-        except Exception as e:
-            try:
-                messagebox.showwarning("Capture Failed", f"Could not capture game window: {e}")
-            except Exception:
-                pass
-            return None
+        return None
 
-    def _detect_cards_from_screen(self):
-        """Run detection and return (player_cards, table_cards)."""
-        try:
-            screenshot = self._capture_screenshot()
-            if screenshot is None:
-                return [], []
-            player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
-            table_cards = self.card_detector.get_table_cards(screenshot, self.screen_regions, self.game_window)
-            return player_cards, table_cards
-        except Exception as e:
+    def _detect_from_extracted_or_existing(self):
+        """Use already detected values or extracted images to provide suggestions."""
+        # Prefer values provided by the bot
+        player = list(self.player_cards) if self.player_cards else []
+        table = list(self.table_cards) if self.table_cards else []
+        
+        # If images are available but values missing, try template matcher quickly
+        if self.extracted_images and (len(player) < 2 or len(table) < 5):
             try:
-                messagebox.showwarning("Detection Failed", f"Card detection failed: {e}")
+                # Player cards
+                for i, key in enumerate(['player_card1', 'player_card2']):
+                    if len(player) <= i or not player[i]:
+                        img = self.extracted_images.get(key)
+                        if img is not None:
+                            match = self.card_detector.template_matcher.match_card(img, confidence_threshold=0.3)
+                            if match:
+                                if len(player) <= i:
+                                    player += [None] * (i - len(player) + 1)
+                                player[i] = match
+                # Flop
+                for i in range(3):
+                    if len(table) <= i or not table[i]:
+                        img = self.extracted_images.get(f"flop_{i+1}")
+                        if img is not None:
+                            match = self.card_detector.template_matcher.match_card(img, confidence_threshold=0.3)
+                            if match:
+                                if len(table) <= i:
+                                    table += [None] * (i - len(table) + 1)
+                                table[i] = match
+                # Turn/River
+                for idx, key in enumerate(['turn_card', 'river_card'], start=3):
+                    if len(table) <= idx or not table[idx]:
+                        img = self.extracted_images.get(key)
+                        if img is not None:
+                            match = self.card_detector.template_matcher.match_card(img, confidence_threshold=0.3)
+                            if match:
+                                if len(table) <= idx:
+                                    table += [None] * (idx - len(table) + 1)
+                                table[idx] = match
             except Exception:
                 pass
-            return [], []
+        return player, table
 
     def _fill_card_value(self, rank_var, suit_var, card_value):
         """Helper to set rank/suit variables from a 'Rs' string like 'Ah'."""
@@ -385,23 +419,13 @@ class CardConfirmationWindow:
         return False
 
     def _update_state(self):
-        """Detect current table and fill only blank fields with newly detected cards."""
-        player_cards, table_cards = self._detect_cards_from_screen()
-        # Update player cards if blank
-        if (self.player_card1_rank.get() == '' or self.player_card1_suit.get() == '') and len(player_cards) >= 1 and player_cards[0]:
-            self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
-        if (self.player_card2_rank.get() == '' or self.player_card2_suit.get() == '') and len(player_cards) >= 2 and player_cards[1]:
-            self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
-        # Update table cards if blank
-        for i in range(min(5, len(self.table_ranks))):
-            if (self.table_ranks[i].get() == '' or self.table_suits[i].get() == '') and i < len(table_cards) and table_cards[i]:
-                self._fill_card_value(self.table_ranks[i], self.table_suits[i], table_cards[i])
-        # Refresh highlights
-        self._update_suit_buttons()
+        """Fill blank fields using existing detected values or extracted images (no screen capture)."""
+        player_cards, table_cards = self._detect_from_extracted_or_existing()
+        self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=True)
 
     def _new_game(self):
-        """Perform a fresh detection cycle akin to 'Play single hand' and refresh fields."""
-        # Clear all to force new detection
+        """Clear inputs and prefill with last detected/extracted values as placeholders."""
+        # Clear all
         self.player_card1_rank.set('')
         self.player_card1_suit.set('')
         self.player_card2_rank.set('')
@@ -409,8 +433,9 @@ class CardConfirmationWindow:
         for i in range(5):
             self.table_ranks[i].set('')
             self.table_suits[i].set('')
-        # Detect and then fill all available cards (player + table)
-        self._update_state()
+        # Prefill from last known detections/extracted images without grabbing screen
+        player_cards, table_cards = self._detect_from_extracted_or_existing()
+        self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=False)
     
     def _confirm_cards(self):
         """Confirm the selected cards"""

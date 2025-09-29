@@ -326,10 +326,38 @@ class GovernorOfPokerBot:
         # Detect cards using improved template matching
         player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
         table_cards = self.card_detector.get_table_cards(screenshot, self.screen_regions, self.game_window)
+
+        # Prepare extracted images for the confirmation UI (dummy fill support)
+        extracted_images = {}
+        try:
+            # Player cards
+            for i, region_name in enumerate(['player_card1', 'player_card2']):
+                x, y, w, h = self.screen_regions[region_name]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+                extracted_images[region_name] = card_img
+            # Flop
+            for i, coords in enumerate(self.screen_regions['flop_cards']):
+                x, y, w, h = coords
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+                extracted_images[f"flop_{i+1}"] = card_img
+            # Turn and river
+            for key in ['turn_card', 'river_card']:
+                x, y, w, h = self.screen_regions[key]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+                extracted_images[key] = card_img
+        except Exception:
+            extracted_images = {}
         
         # Show confirmation window if enabled
         if config.BOT_BEHAVIOR.get('enable_card_confirmation', True):
-            confirmation_result = confirm_cards(player_cards, table_cards)
+            # Pass extracted images so the UI can prefill values
+            confirmation_result = confirm_cards(player_cards, table_cards, extracted_images)
             
             if confirmation_result['action'] == 'fold':
                 self._take_action('fold')
@@ -347,19 +375,38 @@ class GovernorOfPokerBot:
             final_player_cards = player_cards
             final_table_cards = table_cards
         
-        # Simple decision making based on confirmed cards
+        # Decision making using GameSimulator Monte Carlo
         if len(final_player_cards) == 2:
-            # Calculate hand strength
-            all_cards = final_player_cards + final_table_cards
-            hand_strength = self._evaluate_hand_strength(all_cards)
-            
-            # Make decision based on hand strength
-            if hand_strength > 0.7:
-                self._take_action('raise')
-            elif hand_strength > 0.4:
-                self._take_action('call')
-            else:
-                self._take_action('fold')
+            try:
+                players = config.SIMULATION.get('default_opponents', 2)
+                samples = config.SIMULATION.get('monte_carlo_samples', 5000)
+                wins, losses, ties = self.game_simulator.monte_carlo_simulation(
+                    final_player_cards, final_table_cards, players=players, samples=samples
+                )
+                win_prob = float(wins) + 0.5 * float(ties)
+
+                # Use thresholds from config
+                fold_th = config.BOT_BEHAVIOR.get('fold_threshold', 0.3)
+                check_th = config.BOT_BEHAVIOR.get('check_threshold', 0.6)
+
+                if win_prob < fold_th:
+                    self._take_action('fold')
+                elif win_prob < check_th:
+                    # Prefer check, fallback to call
+                    self._take_action('check')
+                else:
+                    # Prefer raise/bet
+                    self._take_action('raise')
+            except Exception:
+                # Fallback to simple evaluation if simulation fails
+                all_cards = final_player_cards + final_table_cards
+                hand_strength = self._evaluate_hand_strength(all_cards)
+                if hand_strength > 0.7:
+                    self._take_action('raise')
+                elif hand_strength > 0.4:
+                    self._take_action('call')
+                else:
+                    self._take_action('fold')
         else:
             self.logger.log("Can't decide - player hands not recognized properly", level="WARNING")
             #self._take_action('fold')
@@ -410,11 +457,17 @@ class GovernorOfPokerBot:
         
         if target is not None:
             x, y, w, h = target
-            # Add some randomness to avoid detection
-            x_offset = random.randint(-5, 5)
-            y_offset = random.randint(-5, 5)
-            pyautogui.click(x + x_offset, y + y_offset)
-            time.sleep(1)  # Wait for action to complete
+            # Click near the center of the button with slight jitter
+            cx = x + w // 2 + random.randint(-5, 5)
+            cy = y + h // 2
+            try:
+                # Ensure the game window is focused
+                self.window_detector.activate_game_window()
+            except Exception:
+                pass
+            pyautogui.moveTo(cx, cy, duration=0.15)
+            pyautogui.click(cx, cy)
+            time.sleep(config.BOT_BEHAVIOR.get('delay_between_actions', 0.5))
         else:
             self.logger.log(f"No available button for action: {action}", level="ERROR")
 
@@ -447,6 +500,13 @@ class GovernorOfPokerBot:
             # Draw turn and river
             for region_name in ['turn_card', 'river_card']:
                 x, y, w, h = self.screen_regions[region_name]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 0, 255), 2)
+
+            for button_name, coords in self.screen_regions['action_buttons'].items():
+                print(f"Button: {button_name}, Coordinates: {coords}")
+                x, y, w, h = coords
                 rel_x = x - self.game_window['left']
                 rel_y = y - self.game_window['top']
                 cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 0, 255), 2)
