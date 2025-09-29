@@ -56,10 +56,10 @@ class Logger:
         if console:
             print(message)
     
-    def log_card_detection(self, player_cards: List[str], community_cards: List[str]):
+    def log_card_detection(self, player_cards: List[str], table_cards: List[str]):
         """Log card detection results"""
         self.log(f"Player cards detected: {player_cards}")
-        self.log(f"Community cards detected: {community_cards}")
+        self.log(f"table cards detected: {table_cards}")
     
     def log_simulation_results(self, win_prob: float, lose_prob: float, tie_prob: float):
         """Log simulation results"""

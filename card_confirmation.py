@@ -12,6 +12,7 @@ from PIL import Image, ImageTk
 import config
 import threading
 import time
+from card_detection import CardDetector
 
 class CardConfirmationWindow:
     def __init__(self):
@@ -19,7 +20,7 @@ class CardConfirmationWindow:
         self.window_thread = None
         self.confirmed_cards = None
         self.player_cards = []
-        self.community_cards = []
+        self.table_cards = []
         self.extracted_images = {}
         self.template_images = {}
         self.result = None
@@ -40,13 +41,14 @@ class CardConfirmationWindow:
         # Button reference maps to avoid grid lookups
         self.player1_suit_buttons = {}
         self.player2_suit_buttons = {}
-        self.community_suit_buttons = []  # list of dicts per community card
+        self.table_suit_buttons = []  # list of dicts per table card
 
         # Calibration and capture/detector placeholders
         self.game_window = dict(config.DEFAULT_GAME_WINDOW)
-        sr = dict(config.DEFAULT_SCREEN_REGIONS)
-        sr['flop_cards'] = list(config.DEFAULT_SCREEN_REGIONS['flop_cards'])
-        self.screen_regions = sr
+        self.screen_regions  = dict(config.DEFAULT_SCREEN_REGIONS)
+        #sr['flop_cards'] = list(config.DEFAULT_SCREEN_REGIONS['flop_cards'])
+        #self.screen_regions = sr
+        self.card_detector = CardDetector()
         
     def load_template_images(self):
         """Load template images for display"""
@@ -62,10 +64,10 @@ class CardConfirmationWindow:
         except Exception as e:
             print(f"Error loading template images: {e}")
     
-    def show_confirmation(self, detected_player_cards, detected_community_cards, extracted_images):
+    def show_confirmation(self, detected_player_cards, detected_table_cards, extracted_images):
         """Show the card confirmation window"""
         self.player_cards = detected_player_cards.copy() if detected_player_cards else []
-        self.community_cards = detected_community_cards.copy() if detected_community_cards else []
+        self.table_cards = detected_table_cards.copy() if detected_table_cards else []
         self.extracted_images = extracted_images.copy() if extracted_images else {}
 
         try:
@@ -87,7 +89,7 @@ class CardConfirmationWindow:
         return {
             'action': 'skip',
             'player_cards': detected_player_cards or [],
-            'community_cards': detected_community_cards or []
+            'table_cards': detected_table_cards or []
         }
     
     def _create_window(self):
@@ -179,40 +181,40 @@ class CardConfirmationWindow:
             btn.grid(row=1, column=2+i, padx=2, pady=(5, 0))
             self.player2_suit_buttons[suit] = btn
         
-        # Community cards section
-        community_frame = ttk.LabelFrame(main_frame, text="Community Cards", padding="8")
-        community_frame.grid(row=2, column=0, columnspan=6, sticky=(tk.W, tk.E), pady=(0, 10))
+        # table cards section
+        table_frame = ttk.LabelFrame(main_frame, text="Table Cards", padding="8")
+        table_frame.grid(row=2, column=0, columnspan=6, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        # Community card variables
-        self.community_ranks = []
-        self.community_suits = []
-        self.community_suit_buttons = []
+        # table card variables
+        self.table_ranks = []
+        self.table_suits = []
+        self.table_suit_buttons = []
         for i in range(5):
-            rank_var = tk.StringVar(value=self.community_cards[i][0] if i < len(self.community_cards) and self.community_cards[i] else "")
-            suit_var = tk.StringVar(value=self.community_cards[i][1] if i < len(self.community_cards) and self.community_cards[i] else "")
-            self.community_ranks.append(rank_var)
-            self.community_suits.append(suit_var)
+            rank_var = tk.StringVar(value=self.table_cards[i][0] if i < len(self.table_cards) and self.table_cards[i] else "")
+            suit_var = tk.StringVar(value=self.table_cards[i][1] if i < len(self.table_cards) and self.table_cards[i] else "")
+            self.table_ranks.append(rank_var)
+            self.table_suits.append(suit_var)
             
             # Row layout: flop (0..2) on row 0, turn/river (3..4) on row 1
             row_idx = 0 if i < 3 else 1
             base_col = (i if i < 3 else (i - 3)) * 6
             
-            ttk.Label(community_frame, text=f"{i+1}:").grid(row=row_idx, column=base_col, padx=(0, 2), pady=(0, 4))
-            rank_entry = ttk.Entry(community_frame, textvariable=rank_var, width=3)
+            ttk.Label(table_frame, text=f"{i+1}:").grid(row=row_idx, column=base_col, padx=(0, 2), pady=(0, 4))
+            rank_entry = ttk.Entry(table_frame, textvariable=rank_var, width=3)
             rank_entry.grid(row=row_idx, column=base_col+1, padx=(0, 2), pady=(0, 4))
             self._bind_uppercase(rank_var)
             
-            # Suit buttons for community cards
+            # Suit buttons for table cards
             btn_map = {}
             for j, (suit, emoji) in enumerate(self.suit_emojis.items()):
                 fg = '#c0392b' if suit in ('h', 'd') else '#000000'
-                btn = tk.Button(community_frame, text=emoji, width=2, height=1,
-                               command=lambda s=suit, idx=i: self._set_community_suit(idx, s),
+                btn = tk.Button(table_frame, text=emoji, width=2, height=1,
+                               command=lambda s=suit, idx=i: self._set_table_suit(idx, s),
                                bg=self._suit_bg(suit_var.get(), suit),
                                fg=fg, font=("Arial", 20, "bold"), relief=tk.RIDGE)
                 btn.grid(row=row_idx, column=base_col+2+j, padx=2, pady=(0, 4))
                 btn_map[suit] = btn
-            self.community_suit_buttons.append(btn_map)
+            self.table_suit_buttons.append(btn_map)
         
         # Action buttons
         button_frame = ttk.Frame(main_frame)
@@ -224,8 +226,7 @@ class CardConfirmationWindow:
         confirm_btn.grid(row=0, column=0, padx=(0, 10))
         
         # Fold button
-        fold_btn = ttk.Button(button_frame, text="FOLD", 
-                             command=self._fold_hand)
+        fold_btn = ttk.Button(button_frame, text="FOLD", command=self._fold_hand)
         fold_btn.grid(row=0, column=1, padx=(0, 10))
         
         # Skip button
@@ -288,9 +289,9 @@ class CardConfirmationWindow:
             self.player_card2_suit.set(suit)
         self._update_suit_buttons()
     
-    def _set_community_suit(self, card_idx, suit):
-        """Set suit for community card"""
-        self.community_suits[card_idx].set(suit)
+    def _set_table_suit(self, card_idx, suit):
+        """Set suit for table card"""
+        self.table_suits[card_idx].set(suit)
         self._update_suit_buttons()
     
     def _update_suit_buttons(self):
@@ -303,10 +304,10 @@ class CardConfirmationWindow:
         for suit, btn in self.player2_suit_buttons.items():
             btn.configure(bg=self._suit_bg(self.player_card2_suit.get(), suit))
         
-        # Update community card buttons
-        for idx, suit_map in enumerate(self.community_suit_buttons):
+        # Update table card buttons
+        for idx, suit_map in enumerate(self.table_suit_buttons):
             for suit, btn in suit_map.items():
-                btn.configure(bg=self._suit_bg(self.community_suits[idx].get(), suit))
+                btn.configure(bg=self._suit_bg(self.table_suits[idx].get(), suit))
 
     def _load_calibration(self):
         """Load calibration file if present."""
@@ -356,16 +357,14 @@ class CardConfirmationWindow:
             return None
 
     def _detect_cards_from_screen(self):
-        """Run detection and return (player_cards, community_cards)."""
+        """Run detection and return (player_cards, table_cards)."""
         try:
-            from card_detection import CardDetector
             screenshot = self._capture_screenshot()
             if screenshot is None:
                 return [], []
-            detector = CardDetector()
-            player_cards = detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
-            community_cards = detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
-            return player_cards, community_cards
+            player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
+            table_cards = self.card_detector.get_table_cards(screenshot, self.screen_regions, self.game_window)
+            return player_cards, table_cards
         except Exception as e:
             try:
                 messagebox.showwarning("Detection Failed", f"Card detection failed: {e}")
@@ -387,16 +386,16 @@ class CardConfirmationWindow:
 
     def _update_state(self):
         """Detect current table and fill only blank fields with newly detected cards."""
-        player_cards, community_cards = self._detect_cards_from_screen()
+        player_cards, table_cards = self._detect_cards_from_screen()
         # Update player cards if blank
         if (self.player_card1_rank.get() == '' or self.player_card1_suit.get() == '') and len(player_cards) >= 1 and player_cards[0]:
             self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
         if (self.player_card2_rank.get() == '' or self.player_card2_suit.get() == '') and len(player_cards) >= 2 and player_cards[1]:
             self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
-        # Update community cards if blank
-        for i in range(min(5, len(self.community_ranks))):
-            if (self.community_ranks[i].get() == '' or self.community_suits[i].get() == '') and i < len(community_cards) and community_cards[i]:
-                self._fill_card_value(self.community_ranks[i], self.community_suits[i], community_cards[i])
+        # Update table cards if blank
+        for i in range(min(5, len(self.table_ranks))):
+            if (self.table_ranks[i].get() == '' or self.table_suits[i].get() == '') and i < len(table_cards) and table_cards[i]:
+                self._fill_card_value(self.table_ranks[i], self.table_suits[i], table_cards[i])
         # Refresh highlights
         self._update_suit_buttons()
 
@@ -408,18 +407,10 @@ class CardConfirmationWindow:
         self.player_card2_rank.set('')
         self.player_card2_suit.set('')
         for i in range(5):
-            self.community_ranks[i].set('')
-            self.community_suits[i].set('')
-        # Detect and then fill all available cards (player + community)
-        player_cards, community_cards = self._detect_cards_from_screen()
-        if len(player_cards) >= 1 and player_cards[0]:
-            self._fill_card_value(self.player_card1_rank, self.player_card1_suit, player_cards[0])
-        if len(player_cards) >= 2 and player_cards[1]:
-            self._fill_card_value(self.player_card2_rank, self.player_card2_suit, player_cards[1])
-        for i in range(min(5, len(community_cards))):
-            if community_cards[i]:
-                self._fill_card_value(self.community_ranks[i], self.community_suits[i], community_cards[i])
-        self._update_suit_buttons()
+            self.table_ranks[i].set('')
+            self.table_suits[i].set('')
+        # Detect and then fill all available cards (player + table)
+        self._update_state()
     
     def _confirm_cards(self):
         """Confirm the selected cards"""
@@ -430,16 +421,16 @@ class CardConfirmationWindow:
         if self.player_card2_rank.get() and self.player_card2_suit.get():
             player_cards.append(f"{self.player_card2_rank.get()}{self.player_card2_suit.get()}")
         
-        # Get community cards
-        community_cards = []
+        # Get table cards
+        table_cards = []
         for i in range(5):
-            if self.community_ranks[i].get() and self.community_suits[i].get():
-                community_cards.append(f"{self.community_ranks[i].get()}{self.community_suits[i].get()}")
+            if self.table_ranks[i].get() and self.table_suits[i].get():
+                table_cards.append(f"{self.table_ranks[i].get()}{self.table_suits[i].get()}")
         
         self.result = {
             'action': 'confirm',
             'player_cards': player_cards,
-            'community_cards': community_cards
+            'table_cards': table_cards
         }
 
     
@@ -448,7 +439,7 @@ class CardConfirmationWindow:
         self.result = {
             'action': 'fold',
             'player_cards': [],
-            'community_cards': []
+            'table_cards': []
         }
     
     def _skip_confirmation(self):
@@ -456,12 +447,12 @@ class CardConfirmationWindow:
         self.result = {
             'action': 'skip',
             'player_cards': self.player_cards,
-            'community_cards': self.community_cards
+            'table_cards': self.table_cards
         }
 
 # Global instance
 confirmation_window = CardConfirmationWindow()
 
-def confirm_cards(detected_player_cards, detected_community_cards, extracted_images=None):
+def confirm_cards(detected_player_cards, detected_table_cards, extracted_images=None):
     """Show card confirmation window and return user's choice"""
-    return confirmation_window.show_confirmation(detected_player_cards, detected_community_cards, extracted_images)
+    return confirmation_window.show_confirmation(detected_player_cards, detected_table_cards, extracted_images)

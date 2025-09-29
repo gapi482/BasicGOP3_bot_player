@@ -79,7 +79,7 @@ class GameSimulator:
             else:
                 break  # Not enough cards
         
-        # Deal remaining community cards
+        # Deal remaining table cards
         while len(table) < 5 and len(deck) > 0:
             table.append(deck.pop())
         

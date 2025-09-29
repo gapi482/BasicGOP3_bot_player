@@ -398,11 +398,11 @@ class CardDetector:
         
         return player_cards
     
-    def get_community_cards(self, img, screen_regions, game_window):
-        """Extract and identify community cards following Texas Hold'em rules"""
-        community_cards = []
+    def get_table_cards(self, img, screen_regions, game_window):
+        """Extract and identify table cards following Texas Hold'em rules"""
+        table_cards = []
         
-        # Check flop cards (first 3 community cards)
+        # Check flop cards (first 3 table cards)
         flop_cards_present = 0
         for i, coords in enumerate(screen_regions['flop_cards']):
             x, y, w, h = coords
@@ -414,7 +414,7 @@ class CardDetector:
             if self._is_card_present(card_img):
                 card = self._detect_card(card_img, f"flop{i+1}")
                 if card:
-                    community_cards.append(card)
+                    table_cards.append(card)
                     flop_cards_present += 1
             else:
                 self.logger.log(f"Flop card {i+1} not present, skipping detection")
@@ -430,14 +430,14 @@ class CardDetector:
             if self._is_card_present(turn_img):
                 turn_card = self._detect_card(turn_img, "turn")
                 if turn_card:
-                    community_cards.append(turn_card)
+                    table_cards.append(turn_card)
             else:
                 self.logger.log("Turn card not present, skipping detection")
         else:
             self.logger.log("Turn card skipped - flop cards not present yet")
         
         # Only check river card if turn card is present (Texas Hold'em rules)
-        if len(community_cards) >= 4:  # Flop (3) + Turn (1) = 4 cards
+        if len(table_cards) >= 4:  # Flop (3) + Turn (1) = 4 cards
             x, y, w, h = screen_regions['river_card']
             rel_x = x - game_window['left']
             rel_y = y - game_window['top']
@@ -447,13 +447,13 @@ class CardDetector:
             if self._is_card_present(river_img):
                 river_card = self._detect_card(river_img, "river")
                 if river_card:
-                    community_cards.append(river_card)
+                    table_cards.append(river_card)
             else:
                 self.logger.log("River card not present, skipping detection")
         else:
             self.logger.log("River card skipped - turn card not present yet")
         
-        return community_cards
+        return table_cards
     
     def _is_card_present(self, card_image: np.ndarray) -> bool:
         """

@@ -12,7 +12,6 @@ import os
 import traceback
 from logger import Logger
 from card_detection import CardDetector
-import config
 from game_simulation import GameSimulator
 from utils import GameWindowCapture, WindowDetector, ScreenshotManager
 from card_confirmation import confirm_cards
@@ -43,10 +42,7 @@ class GovernorOfPokerBot:
         self.screenshot_manager = ScreenshotManager(self.game_window)
         self.card_detector = CardDetector()  # Now using improved template matching
         self.game_simulator = GameSimulator()
-        
-        # Initialize simple odds calculator (fallback)
-        self.odds_calculator = SimpleOddsCalculator()
-        
+
         # Safety settings
         pyautogui.PAUSE = 0.5
         pyautogui.FAILSAFE = True
@@ -80,14 +76,14 @@ class GovernorOfPokerBot:
         # Test player cards
         player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
         
-        # Test community cards
-        community_cards = self.card_detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
+        # Test table cards
+        table_cards = self.card_detector.get_table_cards(screenshot, self.screen_regions, self.game_window)
         
         # Display results
         print(f"\n=== Card Detection Test Results ===")
         print(f"Player Cards: {player_cards}")
-        print(f"Community Cards: {community_cards}")
-        print(f"Total Cards Detected: {len(player_cards) + len(community_cards)}")
+        print(f"table Cards: {table_cards}")
+        print(f"Total Cards Detected: {len(player_cards) + len(table_cards)}")
         
         # Detailed analysis of each card region
         print(f"\n=== Detailed Card Analysis ===")
@@ -126,7 +122,7 @@ class GovernorOfPokerBot:
             
             print(f"  Image saved as: extracted_{region_name}.png")
         
-        # Analyze community cards
+        # Analyze table cards
         for i, coords in enumerate(self.screen_regions['flop_cards']):
             x, y, w, h = coords
             rel_x = x - self.game_window['left']
@@ -253,7 +249,7 @@ class GovernorOfPokerBot:
             cv2.putText(test_img, f"{region_name}: {matched} ({status})", 
                     (rel_x, rel_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
         
-        # Draw community card regions
+        # Draw table card regions
         for i, coords in enumerate(self.screen_regions['flop_cards']):
             x, y, w, h = coords
             rel_x = x - self.game_window['left']
@@ -270,7 +266,7 @@ class GovernorOfPokerBot:
             cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), color, 2)
             
             # Add label
-            matched = community_cards[i] if i < len(community_cards) else "None"
+            matched = table_cards[i] if i < len(table_cards) else "None"
             status = "Present" if is_present else "Absent"
             cv2.putText(test_img, f"{region_name}: {matched} ({status})", 
                     (rel_x, rel_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
@@ -291,7 +287,7 @@ class GovernorOfPokerBot:
             cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), color, 2)
             
             # Add label
-            matched = community_cards[3+i] if (3+i) < len(community_cards) else "None"
+            matched = table_cards[3+i] if (3+i) < len(table_cards) else "None"
             status = "Present" if is_present else "Absent"
             label = "turn" if region_name == 'turn_card' else "river"
             cv2.putText(test_img, f"{label}: {matched} ({status})", 
@@ -306,8 +302,8 @@ class GovernorOfPokerBot:
         # Summary
         print(f"\n=== Summary ===")
         print(f"Total player cards detected: {len(player_cards)}/2")
-        print(f"Total community cards detected: {len(community_cards)}/5")
-        print(f"Total cards detected: {len(player_cards) + len(community_cards)}/7")
+        print(f"Total table cards detected: {len(table_cards)}/5")
+        print(f"Total cards detected: {len(player_cards) + len(table_cards)}/7")
         print(f"\nGenerated files:")
         print(f"  - game_screenshot_test.png (full screenshot)")
         print(f"  - card_detection_test_results.png (with detection results)")
@@ -329,11 +325,11 @@ class GovernorOfPokerBot:
         
         # Detect cards using improved template matching
         player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
-        community_cards = self.card_detector.get_community_cards(screenshot, self.screen_regions, self.game_window)
+        table_cards = self.card_detector.get_table_cards(screenshot, self.screen_regions, self.game_window)
         
         # Show confirmation window if enabled
         if config.BOT_BEHAVIOR.get('enable_card_confirmation', True):
-            confirmation_result = confirm_cards(player_cards, community_cards)
+            confirmation_result = confirm_cards(player_cards, table_cards)
             
             if confirmation_result['action'] == 'fold':
                 self._take_action('fold')
@@ -341,20 +337,20 @@ class GovernorOfPokerBot:
             elif confirmation_result['action'] == 'skip':
                 # Use detected cards as-is
                 final_player_cards = player_cards
-                final_community_cards = community_cards
+                final_table_cards = table_cards
             else:
                 # Use confirmed/corrected cards
                 final_player_cards = confirmation_result['player_cards']
-                final_community_cards = confirmation_result['community_cards']
+                final_table_cards = confirmation_result['table_cards']
         else:
             # Use detected cards directly without confirmation
             final_player_cards = player_cards
-            final_community_cards = community_cards
+            final_table_cards = table_cards
         
         # Simple decision making based on confirmed cards
         if len(final_player_cards) == 2:
             # Calculate hand strength
-            all_cards = final_player_cards + final_community_cards
+            all_cards = final_player_cards + final_table_cards
             hand_strength = self._evaluate_hand_strength(all_cards)
             
             # Make decision based on hand strength
@@ -366,7 +362,7 @@ class GovernorOfPokerBot:
                 self._take_action('fold')
         else:
             self.logger.log("Can't decide - player hands not recognized properly", level="WARNING")
-            self._take_action('fold')
+            #self._take_action('fold')
     
     def _evaluate_hand_strength(self, cards):
         """Simple hand strength evaluation"""
@@ -441,7 +437,7 @@ class GovernorOfPokerBot:
                 rel_y = y - self.game_window['top']
                 cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 255, 0), 2)
             
-            # Draw community card regions
+            # Draw table card regions
             for coords in self.screen_regions['flop_cards']:
                 x, y, w, h = coords
                 rel_x = x - self.game_window['left']
@@ -477,27 +473,3 @@ class GovernorOfPokerBot:
             cv2.destroyAllWindows()
         else:
             self.logger.log("Failed to capture game window", level="ERROR")
-
-
-class SimpleOddsCalculator:
-    """Simple odds calculator for fallback"""
-    
-    def calculate_win_probability(self, player_cards, community_cards):
-        """Calculate simple win probability"""
-        # This is a placeholder - implement proper odds calculation
-        if not player_cards:
-            return 0.0
-        
-        # Basic calculation based on card values
-        strength = 0.0
-        for card in player_cards:
-            if card:
-                rank = card[0]
-                if rank == 'A':
-                    strength += 0.3
-                elif rank in ['K', 'Q', 'J']:
-                    strength += 0.2
-                elif rank.isdigit() and int(rank) >= 10:
-                    strength += 0.1
-        
-        return min(strength, 1.0)
