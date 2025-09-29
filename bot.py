@@ -459,7 +459,7 @@ class GovernorOfPokerBot:
             x, y, w, h = target
             # Click near the center of the button with slight jitter
             cx = x + w // 2 + random.randint(-5, 5)
-            cy = y + h // 2 + random.randint(-5, 5)
+            cy = y + h // 2
             try:
                 # Ensure the game window is focused
                 self.window_detector.activate_game_window()
@@ -500,6 +500,13 @@ class GovernorOfPokerBot:
             # Draw turn and river
             for region_name in ['turn_card', 'river_card']:
                 x, y, w, h = self.screen_regions[region_name]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 0, 255), 2)
+
+            for button_name, coords in self.screen_regions['action_buttons'].items():
+                print(f"Button: {button_name}, Coordinates: {coords}")
+                x, y, w, h = coords
                 rel_x = x - self.game_window['left']
                 rel_y = y - self.game_window['top']
                 cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 0, 255), 2)
