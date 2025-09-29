@@ -15,6 +15,35 @@ class GameSimulator:
         self.ranks = list(config.CARD_RANKS)
         self.cards = [r + s for r in self.ranks for s in self.suits]
 
+    def _normalize_card(self, card: str) -> str:
+        """Normalize a card string to the format expected by phevaluator (e.g., 'As', 'Td')."""
+        if not card:
+            return ''
+        card = card.strip()
+        if len(card) < 2:
+            return ''
+        rank_char = card[0].upper()
+        suit_char = card[1].lower()
+        if rank_char == '1':
+            rank_char = 'T'
+        if rank_char not in self.ranks or suit_char not in self.suits:
+            return ''
+        return f"{rank_char}{suit_char}"
+
+    def _normalize_and_filter(self, cards: List[str]) -> List[str]:
+        """Normalize, filter invalid, and deduplicate while preserving order."""
+        seen = set()
+        result: List[str] = []
+        for c in cards:
+            norm = self._normalize_card(c)
+            if not norm:
+                continue
+            if norm in seen:
+                continue
+            seen.add(norm)
+            result.append(norm)
+        return result
+
     def card_to_values(self, card: str) -> Tuple[int, int]:
         """Convert card string to rank and suit values for phevaluator"""
         if not card or len(card) < 2:
@@ -54,15 +83,17 @@ class GameSimulator:
             print(f"Invalid hand: {hand}")
             return 1  # Default to loss
         
-        # Filter out None values and invalid cards
-        hand = [card for card in hand if card is not None and len(card) == 2]
-        table = [card for card in table if card is not None and len(card) == 2]
+        # Normalize and filter inputs
+        hand = self._normalize_and_filter(hand)
+        table = self._normalize_and_filter(table)
         
         if len(hand) < 2:
             print(f"Invalid hand after filtering: {hand}")
             return 1  # Default to loss
         
-        deck = self.cards.copy()
+        # Build normalized full deck
+        deck = [self._normalize_card(c) for c in self.cards]
+        deck = [c for c in deck if c]
         
         # Remove known cards from deck
         known_cards = hand + table
@@ -79,32 +110,34 @@ class GameSimulator:
             else:
                 break  # Not enough cards
         
-        # Deal remaining table cards
+        # Deal remaining table cards to reach 5
         while len(table) < 5 and len(deck) > 0:
-            table.append(deck.pop())
+            next_card = deck.pop()
+            if next_card not in table and next_card not in hand:
+                table.append(next_card)
         
         try:
             # FIXED: Pass card strings directly to evaluate_cards
             # phevaluator can handle card strings like "As", "Kh", etc.
             all_my_cards = hand + table
-            if len(all_my_cards) >= 2:
-                my_hand_rank = evaluate_cards(*all_my_cards)
-            else:
-                print(f"Not enough cards for evaluation: {all_my_cards}")
-                return 1  # Default to loss
+            # Require 5-7 cards for evaluation; we should have exactly 7 here
+            all_my_cards = self._normalize_and_filter(all_my_cards)
+            if len(all_my_cards) < 5 or len(all_my_cards) > 7:
+                # Invalid state; treat as loss silently
+                return 1
+            my_hand_rank = evaluate_cards(*all_my_cards)
             
             best_opponent_rank = float('inf')
             
             for opponent_hand in opponent_hands:
-                opponent_cards = opponent_hand + table
-                if len(opponent_cards) >= 2:  # Need at least 2 cards
-                    try:
-                        # FIXED: Pass card strings directly to evaluate_cards
-                        opponent_rank = evaluate_cards(*opponent_cards)
-                        best_opponent_rank = min(best_opponent_rank, opponent_rank)
-                    except Exception as e:
-                        print(f"Error evaluating opponent hand {opponent_cards}: {e}")
-                        continue
+                opponent_cards = self._normalize_and_filter(opponent_hand + table)
+                if len(opponent_cards) < 5 or len(opponent_cards) > 7:
+                    continue
+                try:
+                    opponent_rank = evaluate_cards(*opponent_cards)
+                    best_opponent_rank = min(best_opponent_rank, opponent_rank)
+                except Exception:
+                    continue
             
             # Return result: 0 = win, 1 = lose, 2 = tie
             if my_hand_rank < best_opponent_rank:
@@ -114,10 +147,8 @@ class GameSimulator:
             else:
                 return 1  # Lose
                 
-        except Exception as e:
-            print(f"Error in hand evaluation: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            # Treat any evaluation error as a loss without noisy stack traces
             return 1  # Default to loss
 
     def monte_carlo_simulation(self, hand: List[str], table: List[str], players: int = 2, samples: int = 10000) -> List[float]:
@@ -125,7 +156,12 @@ class GameSimulator:
         results = [0, 0, 0]  # [wins, losses, ties]
         
         for _ in range(samples):
-            outcome = self.simulate_hand(hand, table, players)
+            try:
+                outcome = self.simulate_hand(hand, table, players)
+                if outcome not in (0,1,2):
+                    outcome = 1
+            except Exception:
+                outcome = 1
             results[outcome] += 1
         
         # Convert to percentages

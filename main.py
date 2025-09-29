@@ -7,6 +7,7 @@ from bot import GovernorOfPokerBot
 from card_confirmation import confirm_cards
 import sys
 from logger import Logger
+from card_confirmation import confirmation_window
 
 def main():
     print("=== Governor of Poker Bot ===")
@@ -21,6 +22,14 @@ def main():
         print(f"Game window: {bot.game_window['width']}x{bot.game_window['height']} at ({bot.game_window['left']}, {bot.game_window['top']})")
         print()
         
+        # Start the card confirmation UI on main thread so Tk runs safely
+        try:
+            import threading
+            ui_thread = threading.Thread(target=confirmation_window.start_confirmation_ui, daemon=True)
+            ui_thread.start()
+        except Exception:
+            pass
+
         while True:
             print("1. Play single hand")
             print("2. Test screen regions")
