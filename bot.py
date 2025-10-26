@@ -14,7 +14,7 @@ from logger import Logger
 from card_detection import CardDetector
 from game_simulation import GameSimulator
 from utils import GameWindowCapture, WindowDetector, ScreenshotManager
-from card_confirmation import confirm_cards
+from card_confirmation import confirm_cards, confirmation_window
 import config
 
 class GovernorOfPokerBot:
@@ -32,7 +32,6 @@ class GovernorOfPokerBot:
             with open(calibration_file, 'r') as f:
                 self.calibration_data = json.load(f)
             self._setup_from_calibration()
-            self.logger.log("Calibration data loaded successfully")
         else:
             self._setup_defaults()
             self.logger.log("No calibration file found, using defaults", level="WARNING")
@@ -46,7 +45,10 @@ class GovernorOfPokerBot:
         # Safety settings
         pyautogui.PAUSE = 0.5
         pyautogui.FAILSAFE = True
-        
+
+        # Set up callback for a confirmation window to capture fresh screenshots
+        confirmation_window.capture_callback = self._capture_fresh_cards
+
         self.logger.log("Bot initialized successfully with improved card detection")
     
     def _setup_from_calibration(self):
@@ -58,6 +60,53 @@ class GovernorOfPokerBot:
         """Setup default values"""
         self.game_window = dict(config.DEFAULT_GAME_WINDOW)
         self.screen_regions = dict(config.DEFAULT_SCREEN_REGIONS)
+
+    def _capture_fresh_cards(self):
+        """Capture a fresh screenshot and detect cards - used by confirmation window"""
+        try:
+            # Activate the game window
+            self.window_detector.activate_game_window()
+
+            # Take screenshot
+            screenshot = self.screenshot_manager.capture_game_window()
+            if screenshot is None:
+                self.logger.log("Failed to capture fresh screenshot", level="WARNING")
+                return [], [], {}
+
+            # Detect cards
+            player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
+            table_cards = self.card_detector.get_table_cards(screenshot, self.screen_regions, self.game_window)
+
+            # Extract card images
+            extracted_images = {}
+            # Player cards
+            for i, region_name in enumerate(['player_card1', 'player_card2']):
+                x, y, w, h = self.screen_regions[region_name]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+                extracted_images[region_name] = card_img
+            # Flop
+            for i, coords in enumerate(self.screen_regions['flop_cards']):
+                x, y, w, h = coords
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+                extracted_images[f"flop_{i+1}"] = card_img
+            # Turn and river
+            for key in ['turn_card', 'river_card']:
+                x, y, w, h = self.screen_regions[key]
+                rel_x = x - self.game_window['left']
+                rel_y = y - self.game_window['top']
+                card_img = screenshot[rel_y:rel_y+h, rel_x:rel_x+w]
+                extracted_images[key] = card_img
+
+            self.logger.log(f"Fresh capture: {len(player_cards)} player cards, {len(table_cards)} table cards")
+            return player_cards, table_cards, extracted_images
+
+        except Exception as e:
+            self.logger.log_error(f"Error capturing fresh cards: {e}", e)
+            return [], [], {}
     
     def test_card_detection(self):
         """Test the improved card detection system on actual game screen"""

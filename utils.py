@@ -14,14 +14,6 @@ from typing import Tuple, Dict, Any, Optional
 import time
 from logger import Logger
 
-def __init__(self, window_title="GOP3", logger=None):
-    """Initialize game window capture"""
-    self.window_title = window_title
-    self.window = None
-    self.window_index = 0
-    self.last_capture_time = 0
-    self.capture_interval = 0.1
-    self.logger = logger or Logger()
 
 class WindowDetector:
     """Detect game window position and size"""
@@ -130,7 +122,7 @@ class ScreenshotManager:
                 ))
                 screenshot_path = 'current_game.png'
                 im.save(screenshot_path)
-                
+
                 # Read back and ensure proper format
                 result = cv2.imread(screenshot_path)
                 if result is not None:
@@ -138,51 +130,6 @@ class ScreenshotManager:
                 return result
         except Exception as e:
             self.logger.log_error(f"Error taking screenshot: {e}", e)
-            return None
-    """Manage screenshot operations"""
-    
-    def __init__(self, game_window=None):
-        self.game_window = game_window
-        self.window_capture = GameWindowCapture("GOP3")
-        
-    def capture_full_screen(self):
-        """Capture full screen screenshot"""
-        try:
-            img = ImageGrab.grab()
-            img.save('full_screen_test.png')
-            return cv2.imread('full_screen_test.png')
-        except Exception as e:
-            print(f"Error taking full screen screenshot: {e}")
-            return None
-    
-    def capture_game_window(self):
-        """Capture game window screenshot"""
-        print("Taking screenshot...")
-        try:
-            # Try to use the window capture first
-            if self.window_capture.window is None:
-                self.window_capture.find_window()
-            
-            img = self.window_capture.capture_game_image()
-            
-            if img is not None:
-                # Save for debugging
-                cv2.imwrite('current_game.png', img)
-                return img
-            else:
-                # Fallback to old method
-                print("Window capture failed, using fallback method")
-                im = ImageGrab.grab(bbox=(
-                    self.game_window['left'],
-                    self.game_window['top'],
-                    self.game_window['left'] + self.game_window['width'],
-                    self.game_window['top'] + self.game_window['height']
-                ))
-                screenshot_path = 'current_game.png'
-                im.save(screenshot_path)
-                return cv2.imread(screenshot_path)
-        except Exception as e:
-            print(f"Error taking screenshot: {e}")
             return None
 
 class ScreenCalibrator:
@@ -319,85 +266,13 @@ class GameWindowCapture:
             self.logger.log(f"Unknown image format: {img.shape}", level="WARNING")
             return img
 
-    def capture_window_image(self, window=None):
-        """Capture image from specific window"""
-        if window is None:
-            window = self.window
-        
-        if window is None:
-            return None
-        
-        try:
-            # Get window bounds
-            left, top, right, bottom = window.left, window.top, window.right, window.bottom
-            width, height = right - left, bottom - top
-            
-            if width <= 0 or height <= 0:
-                self.logger.log(f"Invalid window dimensions: {width}x{height}", level="ERROR")
-                return None
-            
-            # Capture screenshot using ImageGrab
-            screenshot = ImageGrab.grab(bbox=(left, top, right, bottom))
-            
-            # Convert to numpy array and ensure BGR format
-            img = np.array(screenshot)
-            if len(img.shape) == 3 and img.shape[2] == 3:
-                # RGB to BGR conversion
-                img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            elif len(img.shape) == 3 and img.shape[2] == 4:
-                # RGBA to BGR conversion
-                img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            
-            return self._ensure_bgr_format(img)
-            
-        except Exception as e:
-            self.logger.log_error(f"Error capturing window image: {e}", e)
-            return None
-
-    def capture_game_image(self):
-        """Capture game image with proper error handling"""
-        current_time = time.time()
-        
-        # Check if enough time has passed since last capture
-        if current_time - self.last_capture_time < self.capture_interval:
-            time.sleep(self.capture_interval - (current_time - self.last_capture_time))
-        
-        try:
-            # Find window if not already found
-            if self.window is None:
-                if not self.find_window():
-                    return None
-            
-            # Capture the image
-            img = self.capture_window_image(self.window)
-            
-            if img is not None:
-                self.last_capture_time = time.time()
-                self.logger.log(f"Successfully captured game image: {img.shape}")
-            else:
-                self.logger.log("Failed to capture game image", level="WARNING")
-            
-            return img
-            
-        except Exception as e:
-            self.logger.log_error(f"Error in capture_game_image: {e}", e)
-            return None
-    """Handle game window detection and image capture"""
-    
-    def __init__(self, window_title="GOP3"):
-        self.window_title = window_title
-        self.window = None
-        self.window_index = 0
-        self.last_capture_time = 0
-        self.capture_interval = 0.1  # Minimum time between captures
-        
     def find_window(self, index=0) -> bool:
         """Find game window by title"""
         try:
             # Get all windows with the title
             windows = gw.getWindowsWithTitle(self.window_title)
             self.logger.log(f"Found {len(windows)} windows with title '{self.window_title}'")
-            
+
             if windows and len(windows) > index:
                 self.window = windows[index]
                 self.window_index = index
@@ -409,7 +284,7 @@ class GameWindowCapture:
         except Exception as e:
             self.logger.log_error(f"Error finding window: {e}", e)
             return False
-    
+
     def try_all_windows(self) -> bool:
         """Try all windows with the title to find the correct one"""
         try:
@@ -565,105 +440,3 @@ class GameWindowCapture:
         if self.window:
             return (self.window.left, self.window.top, self.window.width, self.window.height)
         return None
-    """Handle game window detection and image capture"""
-    
-    def __init__(self, window_title="GOP3"):
-        self.window_title = window_title
-        self.window = None
-        self.window_index = 0  # Try first window by default
-        
-    def find_window(self, index=0):
-        """Find game window by title"""
-        try:
-            windows = gw.getWindowsWithTitle(self.window_title)
-            if windows and len(windows) > index:
-                self.window = windows[index]
-                self.window_index = index
-                print(f"Found window: {self.window.title} at {self.window.left},{self.window.top} ({self.window.width}x{self.window.height})")
-                return True
-            else:
-                print(f"No windows found with title '{self.window_title}'")
-                return False
-        except Exception as e:
-            print(f"Error finding window: {e}")
-            return False
-    
-    def try_all_windows(self):
-        """Try all windows with the title to find the correct one"""
-        try:
-            windows = gw.getWindowsWithTitle(self.window_title)
-            print(f"Found {len(windows)} windows with title '{self.window_title}'")
-            
-            for i, window in enumerate(windows):
-                print(f"Window {i}: {window.title} at {window.left},{window.top} ({window.width}x{window.height})")
-                
-                # Try to activate and capture this window
-                try:
-                    window.activate()
-                    time.sleep(0.5)  # Wait for window to come to foreground
-                    
-                    # Capture a test image
-                    img = self.capture_window_image(window)
-                    if img is not None:
-                        # Save test image for verification
-                        cv2.imwrite(f"window_test_{i}.png", img)
-                        print(f"Saved test image for window {i} as window_test_{i}.png")
-                        
-                        # Ask user if this is the correct window
-                        response = input(f"Is window {i} the correct game window? (y/n): ").lower()
-                        if response == 'y':
-                            self.window = window
-                            self.window_index = i
-                            return True
-                except Exception as e:
-                    print(f"Error testing window {i}: {e}")
-            
-            return False
-        except Exception as e:
-            print(f"Error finding windows: {e}")
-            return False
-    
-    def capture_window_image(self, window=None):
-        """Capture image from specified window"""
-        if window is None:
-            window = self.window
-            
-        if window is None:
-            print("No window specified")
-            return None
-        
-        try:
-            # Get window position and size
-            x, y, width, height = window.left, window.top, window.width, window.height
-
-            # Prefer pyautogui on Windows; it's more reliable than pyscreenshot
-            try:
-                pg_img = pyautogui.screenshot(region=(x, y, width, height))
-                img = cv2.cvtColor(np.array(pg_img), cv2.COLOR_RGB2BGR)
-                return img
-            except Exception:
-                pass
-
-            # Fallback to pyscreenshot
-            screenshot = ImageGrab.grab(bbox=(x, y, x + width, y + height))
-            img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-            return img
-        except Exception as e:
-            print(f"Error capturing window image: {e}")
-            return None
-    
-    def capture_game_image(self):
-        """Capture image from the game window"""
-        return self.capture_window_image()
-    
-    def activate_window(self):
-        """Bring game window to foreground"""
-        if self.window:
-            try:
-                self.window.activate()
-                time.sleep(0.5)  # Wait for window to come to foreground
-                return True
-            except Exception as e:
-                print(f"Error activating window: {e}")
-                return False
-        return False

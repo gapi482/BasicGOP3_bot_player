@@ -19,7 +19,6 @@ def main():
         
         # Initialize bot with calibration file
         bot = GovernorOfPokerBot('screen_calibration.json', logger)
-        print(f"Game window: {bot.game_window['width']}x{bot.game_window['height']} at ({bot.game_window['left']}, {bot.game_window['top']})")
         print()
         
         # Start the card confirmation UI on main thread so Tk runs safely

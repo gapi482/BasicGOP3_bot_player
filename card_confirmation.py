@@ -24,20 +24,20 @@ class CardConfirmationWindow:
         self.extracted_images = {}
         self.template_images = {}
         self.result = None
-        
+
         # Themed colors inspired by GOP3
         # Poker green theme
         self.theme_bg = '#0b5d1e'       # poker table green
         self.theme_panel = '#0e6f26'    # slightly lighter/darker green panel
         self.theme_accent = '#f0c674'   # gold accent
         self.theme_text = '#e6eef2'     # near-white text
-        
+
         # Card options
         self.ranks = list(config.CARD_RANKS)
         self.suit_emojis = {'h': '♥', 'd': '♦', 'c': '♣', 's': '♠'}
         self.suits = list(config.CARD_SUITS)
         self.card_options = [f"{rank}{suit}" for rank in self.ranks for suit in self.suits]
-        
+
         # Button reference maps to avoid grid lookups
         self.player1_suit_buttons = {}
         self.player2_suit_buttons = {}
@@ -49,6 +49,9 @@ class CardConfirmationWindow:
         #sr['flop_cards'] = list(config.DEFAULT_SCREEN_REGIONS['flop_cards'])
         #self.screen_regions = sr
         self.card_detector = CardDetector()
+
+        # Callback function to capture fresh screenshots (set by bot)
+        self.capture_callback = None
         # If host app wants to run Tk in main thread, they should call start_confirmation_ui()
         # which will build UI and enter mainloop without blocking CLI inputs.
 
@@ -63,15 +66,14 @@ class CardConfirmationWindow:
             pass
         
     def load_template_images(self):
-        """Load template images for display"""
+        """Load template images for display in the UI"""
         try:
             for card in self.card_options:
                 template_path = f"card_templates/{card}.png"
-                template_img = cv2.imread(template_path)
+                template_img = cv2.imread(template_path, cv2.IMREAD_COLOR)
                 if template_img is not None:
-                    # Resize template for display
-                    template_resized = cv2.resize(template_img, (60, 80))
-                    template_rgb = cv2.cvtColor(template_resized, cv2.COLOR_BGR2RGB)
+                    # Convert BGR to RGB for PIL/Tkinter display
+                    template_rgb = cv2.cvtColor(template_img, cv2.COLOR_BGR2RGB)
                     self.template_images[card] = ImageTk.PhotoImage(Image.fromarray(template_rgb))
         except Exception as e:
             print(f"Error loading template images: {e}")
@@ -83,15 +85,24 @@ class CardConfirmationWindow:
         self.table_cards = detected_table_cards.copy() if detected_table_cards else []
         self.extracted_images = extracted_images.copy() if extracted_images else {}
 
-        # If window exists, prefill blanks from the latest detections/images without overwriting user input
+        # If window exists, populate it with the latest detections
         try:
             if self.root is not None and self.root.winfo_exists():
                 def _prefill():
                     player, table = self._detect_from_extracted_or_existing()
-                    self._apply_cards_to_ui(player, table, fill_only_blank=True)
+                    # On initial startup, fill ALL fields (not just blanks)
+                    # Check if all fields are empty - this indicates initial load
+                    all_empty = (
+                        self.player_card1_rank.get() == '' and
+                        self.player_card1_suit.get() == '' and
+                        self.player_card2_rank.get() == '' and
+                        self.player_card2_suit.get() == ''
+                    )
+                    # If all empty, fill everything; otherwise only fill blanks
+                    self._apply_cards_to_ui(player, table, fill_only_blank=not all_empty)
                 self.root.after(0, _prefill)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error prefilling UI: {e}")
 
         # Immediately return the most recent user choice if present; otherwise return current detections
         if self.result is not None:
@@ -356,12 +367,9 @@ class CardConfirmationWindow:
                     self.game_window = data['game_window']
                 if 'screen_regions' in data:
                     self.screen_regions = data['screen_regions']
-        except Exception:
-            pass
-
-    # Removed screen capture calls from the Tk thread to avoid GIL/threading issues
-    def _capture_screenshot(self):
-        return None
+                print("Calibration loaded successfully")
+        except Exception as e:
+            print(f"Failed to load calibration: {e}")
 
     def _detect_from_extracted_or_existing(self):
         """Use already detected values or extracted images to provide suggestions."""
@@ -406,26 +414,29 @@ class CardConfirmationWindow:
                 pass
         return player, table
 
-    def _fill_card_value(self, rank_var, suit_var, card_value):
-        """Helper to set rank/suit variables from a 'Rs' string like 'Ah'."""
-        if not card_value or len(card_value) < 2:
-            return False
-        rank = card_value[0].upper()
-        suit = card_value[1].lower()
-        if rank and suit in self.suits:
-            rank_var.set(rank)
-            suit_var.set(suit)
-            return True
-        return False
-
     def _update_state(self):
-        """Fill blank fields using existing detected values or extracted images (no screen capture)."""
+        """Fill blank fields by capturing a fresh screenshot and detecting new cards."""
+        # Try to capture a new screenshot if callback is available
+        if self.capture_callback is not None:
+            try:
+                fresh_player, fresh_table, fresh_images = self.capture_callback()
+                # Update internal state with fresh data
+                if fresh_player:
+                    self.player_cards = fresh_player
+                if fresh_table:
+                    self.table_cards = fresh_table
+                if fresh_images:
+                    self.extracted_images = fresh_images
+            except Exception as e:
+                print(f"Failed to capture fresh screenshot: {e}")
+
+        # Detect from current state
         player_cards, table_cards = self._detect_from_extracted_or_existing()
         self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=True)
 
     def _new_game(self):
-        """Clear inputs and prefill with last detected/extracted values as placeholders."""
-        # Clear all
+        """Clear inputs and capture a fresh screenshot for a new hand."""
+        # Clear all fields first
         self.player_card1_rank.set('')
         self.player_card1_suit.set('')
         self.player_card2_rank.set('')
@@ -433,7 +444,22 @@ class CardConfirmationWindow:
         for i in range(5):
             self.table_ranks[i].set('')
             self.table_suits[i].set('')
-        # Prefill from last known detections/extracted images without grabbing screen
+
+        # Try to capture a new screenshot if callback is available
+        if self.capture_callback is not None:
+            try:
+                fresh_player, fresh_table, fresh_images = self.capture_callback()
+                # Update internal state with fresh data
+                if fresh_player:
+                    self.player_cards = fresh_player
+                if fresh_table:
+                    self.table_cards = fresh_table
+                if fresh_images:
+                    self.extracted_images = fresh_images
+            except Exception as e:
+                print(f"Failed to capture fresh screenshot: {e}")
+
+        # Prefill from detected values
         player_cards, table_cards = self._detect_from_extracted_or_existing()
         self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=False)
     
