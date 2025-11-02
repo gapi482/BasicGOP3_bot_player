@@ -2,20 +2,18 @@
 """
 Fast Card Confirmation Window for Poker Bot
 """
-import tkinter as tk
-from tkinter import ttk, messagebox
 import json
 import os
+import tkinter as tk
+from tkinter import ttk
 import cv2
-import numpy as np
 from PIL import Image, ImageTk
 import config
-import threading
-import time
 from card_detection import CardDetector
 
+
 class CardConfirmationWindow:
-    def __init__(self):
+    def __init__(self, calibration_data):
         self.root = None
         self.window_thread = None
         self.confirmed_cards = None
@@ -44,10 +42,9 @@ class CardConfirmationWindow:
         self.table_suit_buttons = []  # list of dicts per table card
 
         # Calibration and capture/detector placeholders
-        self.game_window = dict(config.DEFAULT_GAME_WINDOW)
-        self.screen_regions  = dict(config.DEFAULT_SCREEN_REGIONS)
-        #sr['flop_cards'] = list(config.DEFAULT_SCREEN_REGIONS['flop_cards'])
-        #self.screen_regions = sr
+        self.calibration_data = calibration_data
+        self.game_window = self.calibration_data['game_window']
+        self.screen_regions = self.calibration_data['screen_regions']
         self.card_detector = CardDetector()
 
         # Callback function to capture fresh screenshots (set by bot)
@@ -500,10 +497,3 @@ class CardConfirmationWindow:
             'player_cards': self.player_cards,
             'table_cards': self.table_cards
         }
-
-# Global instance
-confirmation_window = CardConfirmationWindow()
-
-def confirm_cards(detected_player_cards, detected_table_cards, extracted_images=None):
-    """Show card confirmation window and return user's choice"""
-    return confirmation_window.show_confirmation(detected_player_cards, detected_table_cards, extracted_images)

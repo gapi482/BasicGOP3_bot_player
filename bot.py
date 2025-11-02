@@ -4,37 +4,23 @@ Main Bot Class for Governor of Poker - Updated with Improved Card Detection
 """
 import random
 import cv2
-import numpy as np
 import pyautogui
 import time
-import json
-import os
-import traceback
-from logger import Logger
 from card_detection import CardDetector
 from game_simulation import GameSimulator
-from utils import GameWindowCapture, WindowDetector, ScreenshotManager
-from card_confirmation import confirm_cards, confirmation_window
+from utils import WindowDetector, ScreenshotManager
+from card_confirmation import CardConfirmationWindow
 import config
 
 class GovernorOfPokerBot:
-    def __init__(self, calibration_file='screen_calibration.json', logger=None):
+    def __init__(self, calibration_data, logger):
         """Initialize the bot with calibration data"""
-        self.calibration_file = calibration_file
-        self.calibration_data = None
-        
-        # Initialize logger
-        self.logger = Logger()
+        self.calibration_data = calibration_data
+        self.game_window = self.calibration_data['game_window']
+        self.screen_regions = self.calibration_data['screen_regions']
+
+        self.logger = logger
         self.logger.log("Initializing Governor of Poker Bot with Improved Card Detection")
-        
-        # Load calibration data
-        if os.path.exists(calibration_file):
-            with open(calibration_file, 'r') as f:
-                self.calibration_data = json.load(f)
-            self._setup_from_calibration()
-        else:
-            self._setup_defaults()
-            self.logger.log("No calibration file found, using defaults", level="WARNING")
         
         # Initialize components
         self.window_detector = WindowDetector()
@@ -47,7 +33,8 @@ class GovernorOfPokerBot:
         pyautogui.FAILSAFE = True
 
         # Set up callback for a confirmation window to capture fresh screenshots
-        confirmation_window.capture_callback = self._capture_fresh_cards
+        self.confirmation_window = CardConfirmationWindow(calibration_data)
+        self.confirmation_window.capture_callback = self._capture_fresh_cards
 
         self.logger.log("Bot initialized successfully with improved card detection")
     
@@ -55,11 +42,6 @@ class GovernorOfPokerBot:
         """Setup from calibration data"""
         self.game_window = self.calibration_data['game_window']
         self.screen_regions = self.calibration_data['screen_regions']
-    
-    def _setup_defaults(self):
-        """Setup default values"""
-        self.game_window = dict(config.DEFAULT_GAME_WINDOW)
-        self.screen_regions = dict(config.DEFAULT_SCREEN_REGIONS)
 
     def _capture_fresh_cards(self):
         """Capture a fresh screenshot and detect cards - used by confirmation window"""
@@ -406,7 +388,7 @@ class GovernorOfPokerBot:
         # Show confirmation window if enabled
         if config.BOT_BEHAVIOR.get('enable_card_confirmation', True):
             # Pass extracted images so the UI can prefill values
-            confirmation_result = confirm_cards(player_cards, table_cards, extracted_images)
+            confirmation_result = self.confirmation_window.show_confirmation(player_cards, table_cards, extracted_images)
             
             if confirmation_result['action'] == 'fold':
                 self._take_action('fold')
@@ -566,7 +548,6 @@ class GovernorOfPokerBot:
     
     def calibrate_screen(self):
         """Calibrate screen regions"""
-        print("Screen calibration not implemented in this version")
         print("Please manually edit the screen_calibration.json file")
     
     def preview_game_window(self):

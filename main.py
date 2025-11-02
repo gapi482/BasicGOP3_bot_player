@@ -4,24 +4,28 @@ Governor of Poker Bot - Main Entry Point
 """
 
 from bot import GovernorOfPokerBot
-from card_confirmation import confirm_cards
+from card_confirmation import CardConfirmationWindow
 import sys
+import os
+import json
 from logger import Logger
-from card_confirmation import confirmation_window
 
 def main():
     print("=== Governor of Poker Bot ===")
-    
+    logger = Logger()
+    logger.log("Starting Governor of Poker Bot application")
     try:
-        # Initialize logger
-        logger = Logger()
-        logger.log("Starting Governor of Poker Bot application")
-        
-        # Initialize bot with calibration file
-        bot = GovernorOfPokerBot('screen_calibration.json', logger)
+        # Initialize bot with a calibration file
+        if os.path.exists("screen_calibration.json"):
+            with open("screen_calibration.json", 'r') as f:
+                calibration_data = json.load(f)
+        else:
+            logger.log("No calibration file found, ", level="WARNING")
+        bot = GovernorOfPokerBot(calibration_data, logger)
+        confirmation_window = CardConfirmationWindow(calibration_data)
         print()
-        
-        # Start the card confirmation UI on main thread so Tk runs safely
+
+        # Start the card confirmation UI on the main thread so Tk runs safely
         try:
             import threading
             ui_thread = threading.Thread(target=confirmation_window.start_confirmation_ui, daemon=True)
@@ -34,15 +38,14 @@ def main():
             print("2. Test screen regions")
             print("3. Test card detection")
             print("4. Preview game window")
-            print("5. Calibrate screen")
-            print("6. Exit")
-            choice = input("\nEnter your choice (1-6): ").strip()
+            print("5. Exit")
+            choice = input("\nEnter your choice (1-5): ").strip()
             logger.log(f"User selected option: {choice}")
-            
+
             if choice == "1":
                 bot.play_hand()
                 try:
-                    confirm_cards([], [], None)
+                    confirmation_window.show_confirmation([], [], None)
                 except Exception:
                     pass
             elif choice == "2":
@@ -52,15 +55,13 @@ def main():
             elif choice == "4":
                 bot.preview_game_window()
             elif choice == "5":
-                bot.calibrate_screen()
-            elif choice == "6":
                 logger.log("Exiting application")
                 print("Exiting...")
                 break
             else:
                 logger.log(f"Invalid choice: {choice}", level="WARNING")
                 print("Invalid choice. Please try again.")
-                
+
     except KeyboardInterrupt:
         logger.log("Application stopped by user")
         print("\nBot stopped by user")
