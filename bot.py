@@ -34,7 +34,7 @@ class GovernorOfPokerBot:
         pyautogui.FAILSAFE = True
 
         # Set up callback for a confirmation window to capture fresh screenshots
-        self.confirmation_window = CardConfirmationWindow(calibration_data)
+        self.confirmation_window = CardConfirmationWindow(calibration_data, logger)
         self.confirmation_window.capture_callback = self._capture_fresh_cards
 
         self.logger.log("Bot initialized successfully with improved card detection")

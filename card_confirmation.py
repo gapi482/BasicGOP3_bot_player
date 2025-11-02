@@ -13,7 +13,7 @@ from card_detection import CardDetector
 
 
 class CardConfirmationWindow:
-    def __init__(self, calibration_data):
+    def __init__(self, calibration_data, logger):
         self.root = None
         self.window_thread = None
         self.confirmed_cards = None
@@ -46,6 +46,7 @@ class CardConfirmationWindow:
         self.game_window = self.calibration_data['game_window']
         self.screen_regions = self.calibration_data['screen_regions']
         self.card_detector = CardDetector()
+        self.logger = logger
 
         # Callback function to capture fresh screenshots (set by bot)
         self.capture_callback = None
@@ -73,7 +74,7 @@ class CardConfirmationWindow:
                     template_rgb = cv2.cvtColor(template_img, cv2.COLOR_BGR2RGB)
                     self.template_images[card] = ImageTk.PhotoImage(Image.fromarray(template_rgb))
         except Exception as e:
-            print(f"Error loading template images: {e}")
+            self.logger.log(f"Error loading template images: {e}", level="ERROR")
 
     def show_confirmation(self, detected_player_cards, detected_table_cards, extracted_images):
         """Update internal data and return the latest choice; window is managed on main thread."""
@@ -82,25 +83,36 @@ class CardConfirmationWindow:
         self.table_cards = detected_table_cards.copy() if detected_table_cards else []
         self.extracted_images = extracted_images.copy() if extracted_images else {}
 
+        # Debug output
+        self.logger.log(
+            f"Received: {len(self.player_cards)} player cards, {len(self.table_cards)} table cards, {len(self.extracted_images)} images")
+        if self.player_cards:
+            self.logger.log(f"Player cards: {self.player_cards}")
+        if self.table_cards:
+            self.logger.log(f"Table cards: {self.table_cards}")
+
         # If window exists, populate it with the latest detections
         try:
             if self.root is not None and self.root.winfo_exists():
-                def _prefill():
-                    player, table = self._detect_from_extracted_or_existing()
-                    # On initial startup, fill ALL fields (not just blanks)
-                    # Check if all fields are empty - this indicates initial load
-                    all_empty = (
-                            self.player_card1_rank.get() == '' and
-                            self.player_card1_suit.get() == '' and
-                            self.player_card2_rank.get() == '' and
-                            self.player_card2_suit.get() == ''
-                    )
-                    # If all empty, fill everything; otherwise only fill blanks
-                    self._apply_cards_to_ui(player, table, fill_only_blank=not all_empty)
+                player, table = self._detect_from_extracted_or_existing()
+                # If we have detected cards or extracted images, always fill ALL fields
+                # This ensures fresh detections overwrite previous values
+                has_new_data = (len(player) > 0 or len(table) > 0 or
+                                (detected_player_cards and len(detected_player_cards) > 0) or
+                                (detected_table_cards and len(detected_table_cards) > 0))
 
-                self.root.after(0, _prefill)
+                # Fill all fields if we have new data, otherwise only fill blanks
+                # Update UI immediately (we're running Tk on main thread now)
+                self._apply_cards_to_ui(player, table, fill_only_blank=not has_new_data)
+                self.logger.log(f"UI updated with {len(player)} player, {len(table)} table cards")
+
+                # Force window to update and become visible
+                self.root.update_idletasks()
+                self.root.update()
+                self.root.deiconify()  # Make sure window is not minimized
+                self.root.lift()  # Bring to front
         except Exception as e:
-            print(f"Error prefilling UI: {e}")
+            self.logger.log(f"Error prefilling UI: {e}", level="ERROR")
 
         # Immediately return the most recent user choice if present; otherwise return current detections
         if self.result is not None:
@@ -334,7 +346,8 @@ class CardConfirmationWindow:
                 btn.configure(bg=self._suit_bg(self.table_suits[idx].get(), suit))
 
     def _apply_cards_to_ui(self, player_cards, table_cards, fill_only_blank=True):
-        """Apply given cards into the UI entries. If fill_only_blank is True, only fill empty fields."""
+        """Apply given cards into the UI entries. If fill_only_blank is True, only fill empty fields.
+        If fill_only_blank is False, also clear fields that don't have corresponding detected cards."""
         # Player 1
         if len(player_cards) >= 1 and player_cards[0]:
             rank = player_cards[0][0].upper()
@@ -342,6 +355,10 @@ class CardConfirmationWindow:
             if not fill_only_blank or self.player_card1_rank.get() == '' or self.player_card1_suit.get() == '':
                 self.player_card1_rank.set(rank)
                 self.player_card1_suit.set(suit)
+        elif not fill_only_blank:
+            self.player_card1_rank.set('')
+            self.player_card1_suit.set('')
+
         # Player 2
         if len(player_cards) >= 2 and player_cards[1]:
             rank = player_cards[1][0].upper()
@@ -349,6 +366,9 @@ class CardConfirmationWindow:
             if not fill_only_blank or self.player_card2_rank.get() == '' or self.player_card2_suit.get() == '':
                 self.player_card2_rank.set(rank)
                 self.player_card2_suit.set(suit)
+        elif not fill_only_blank:
+            self.player_card2_rank.set('')
+            self.player_card2_suit.set('')
 
         # Table cards (up to 5)
         for i in range(min(5, len(self.table_ranks))):
@@ -358,11 +378,19 @@ class CardConfirmationWindow:
                 if not fill_only_blank or self.table_ranks[i].get() == '' or self.table_suits[i].get() == '':
                     self.table_ranks[i].set(rank)
                     self.table_suits[i].set(suit)
+            elif not fill_only_blank:
+                self.table_ranks[i].set('')
+                self.table_suits[i].set('')
 
+        # Update suit buttons to reflect the new suit values
         self._update_suit_buttons()
 
+        # Force UI refresh to ensure Entry widgets display updated values
+        if self.root and self.root.winfo_exists():
+            self.root.update_idletasks()
+
     def _load_calibration(self):
-        """Load calibration file if present."""
+        """Load the calibration file if present."""
         try:
             calib_path = 'screen_calibration.json'
             if os.path.exists(calib_path):
@@ -372,9 +400,9 @@ class CardConfirmationWindow:
                     self.game_window = data['game_window']
                 if 'screen_regions' in data:
                     self.screen_regions = data['screen_regions']
-                print("Calibration loaded successfully")
+                self.logger.log("Calibration loaded successfully")
         except Exception as e:
-            print(f"Failed to load calibration: {e}")
+            self.logger.log(f"Failed to load calibration: {e}", level="ERROR")
 
     def _detect_from_extracted_or_existing(self):
         """Use already detected values or extracted images to provide suggestions."""
@@ -421,9 +449,11 @@ class CardConfirmationWindow:
 
     def _update_state(self):
         """Fill blank fields by capturing a fresh screenshot and detecting new cards."""
+        self.logger.log("Update State button clicked")
         # Try to capture a new screenshot if callback is available
         if self.capture_callback is not None:
             try:
+                self.logger.log("Capturing fresh screenshot via callback...")
                 fresh_player, fresh_table, fresh_images = self.capture_callback()
                 # Update internal state with fresh data
                 if fresh_player:
@@ -433,15 +463,19 @@ class CardConfirmationWindow:
                 if fresh_images:
                     self.extracted_images = fresh_images
             except Exception as e:
-                print(f"Failed to capture fresh screenshot: {e}")
+                self.logger.log(f"Failed to capture fresh screenshot: {e}", level="ERROR")
 
         # Detect from current state
         player_cards, table_cards = self._detect_from_extracted_or_existing()
         self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=True)
 
+        # Force UI update
+        if self.root and self.root.winfo_exists():
+            self.root.update_idletasks()
+            self.root.update()
+
     def _new_game(self):
         """Clear inputs and capture a fresh screenshot for a new hand."""
-        # Clear all fields first
         self.player_card1_rank.set('')
         self.player_card1_suit.set('')
         self.player_card2_rank.set('')
@@ -449,24 +483,41 @@ class CardConfirmationWindow:
         for i in range(5):
             self.table_ranks[i].set('')
             self.table_suits[i].set('')
+        self._update_suit_buttons()
+
+        # Force UI refresh after clearing
+        if self.root and self.root.winfo_exists():
+            self.root.update_idletasks()
 
         # Try to capture a new screenshot if callback is available
         if self.capture_callback is not None:
             try:
+                self.logger.log("Capturing fresh screenshot via callback...")
                 fresh_player, fresh_table, fresh_images = self.capture_callback()
                 # Update internal state with fresh data
-                if fresh_player:
-                    self.player_cards = fresh_player
-                if fresh_table:
-                    self.table_cards = fresh_table
-                if fresh_images:
-                    self.extracted_images = fresh_images
+                self.player_cards = fresh_player if fresh_player is not None else []
+                self.table_cards = fresh_table if fresh_table is not None else []
+                self.extracted_images = fresh_images if fresh_images is not None else {}
             except Exception as e:
-                print(f"Failed to capture fresh screenshot: {e}")
+                self.logger.log(f"Failed to capture fresh screenshot: {e}", level="ERROR")
+                self.player_cards = []
+                self.table_cards = []
+                self.extracted_images = {}
+        else:
+            # No callback available, clear internal state
+            self.player_cards = []
+            self.table_cards = []
+            self.extracted_images = {}
 
         # Prefill from detected values
         player_cards, table_cards = self._detect_from_extracted_or_existing()
         self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=False)
+        self.logger.log(f"New Game: Applied {len(player_cards)} player, {len(table_cards)} table cards to UI")
+
+        # Force UI update
+        if self.root and self.root.winfo_exists():
+            self.root.update_idletasks()
+            self.root.update()
 
     def _confirm_cards(self):
         """Confirm the selected cards"""
