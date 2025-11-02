@@ -4,8 +4,9 @@ Game Simulation Module
 """
 import random
 from typing import List, Tuple
-from phevaluator import evaluate_cards
+from phevaluator.evaluator import evaluate_cards
 import config
+
 
 class GameSimulator:
     def __init__(self):
@@ -48,18 +49,18 @@ class GameSimulator:
         """Convert card string to rank and suit values for phevaluator"""
         if not card or len(card) < 2:
             return 14, 1  # Default to Ace of Spades
-        
+
         rank_char = card[0]
         suit_char = card[1]
-        
+
         rank_map = {
             'A': 14,  # Ace
             'K': 13,  # King
             'Q': 12,  # Queen
             'J': 11,  # Jack
-            'T': 10   # Ten
+            'T': 10  # Ten
         }
-        
+
         # Get rank value
         if rank_char in rank_map:
             rank = rank_map[rank_char]
@@ -69,11 +70,11 @@ class GameSimulator:
             except ValueError:
                 rank = 14
                 print(f"Warning: Invalid rank '{rank_char}' in card '{card}', defaulting to Ace")
-        
+
         # Suit mapping
         suit_map = {'s': 1, 'h': 2, 'd': 3, 'c': 4}
         suit = suit_map.get(suit_char, 1)  # Default to spades
-        
+
         return rank, suit
 
     def simulate_hand(self, hand: List[str], table: List[str], players: int = 2) -> int:
@@ -82,26 +83,26 @@ class GameSimulator:
         if not hand or len(hand) < 2:
             print(f"Invalid hand: {hand}")
             return 1  # Default to loss
-        
+
         # Normalize and filter inputs
         hand = self._normalize_and_filter(hand)
         table = self._normalize_and_filter(table)
-        
+
         if len(hand) < 2:
             print(f"Invalid hand after filtering: {hand}")
             return 1  # Default to loss
-        
-        # Build normalized full deck
+
+        # Build a normalized full deck
         deck = [self._normalize_card(c) for c in self.cards]
         deck = [c for c in deck if c]
-        
-        # Remove known cards from deck
+
+        # Remove known cards from the deck
         known_cards = hand + table
         deck = [card for card in deck if card not in known_cards]
-        
+
         # Shuffle remaining deck
         random.shuffle(deck)
-        
+
         # Deal cards to opponents
         opponent_hands = []
         for _ in range(players - 1):
@@ -109,13 +110,13 @@ class GameSimulator:
                 opponent_hands.append([deck.pop(), deck.pop()])
             else:
                 break  # Not enough cards
-        
+
         # Deal remaining table cards to reach 5
         while len(table) < 5 and len(deck) > 0:
             next_card = deck.pop()
             if next_card not in table and next_card not in hand:
                 table.append(next_card)
-        
+
         try:
             # FIXED: Pass card strings directly to evaluate_cards
             # phevaluator can handle card strings like "As", "Kh", etc.
@@ -126,9 +127,9 @@ class GameSimulator:
                 # Invalid state; treat as loss silently
                 return 1
             my_hand_rank = evaluate_cards(*all_my_cards)
-            
+
             best_opponent_rank = float('inf')
-            
+
             for opponent_hand in opponent_hands:
                 opponent_cards = self._normalize_and_filter(opponent_hand + table)
                 if len(opponent_cards) < 5 or len(opponent_cards) > 7:
@@ -138,7 +139,7 @@ class GameSimulator:
                     best_opponent_rank = min(best_opponent_rank, opponent_rank)
                 except Exception:
                     continue
-            
+
             # Return result: 0 = win, 1 = lose, 2 = tie
             if my_hand_rank < best_opponent_rank:
                 return 0  # Win
@@ -146,29 +147,30 @@ class GameSimulator:
                 return 2  # Tie
             else:
                 return 1  # Lose
-                
+
         except Exception:
             # Treat any evaluation error as a loss without noisy stack traces
             return 1  # Default to loss
 
-    def monte_carlo_simulation(self, hand: List[str], table: List[str], players: int = 2, samples: int = 10000) -> List[float]:
+    def monte_carlo_simulation(self, hand: List[str], table: List[str], players: int = 2, samples: int = 10000) -> List[
+        float]:
         """Run Monte Carlo simulation to calculate win probabilities"""
         results = [0, 0, 0]  # [wins, losses, ties]
-        
+
         for _ in range(samples):
             try:
                 outcome = self.simulate_hand(hand, table, players)
-                if outcome not in (0,1,2):
+                if outcome not in (0, 1, 2):
                     outcome = 1
             except Exception:
                 outcome = 1
             results[outcome] += 1
-        
+
         # Convert to percentages
         total = sum(results)
         return [result / total for result in results] if total > 0 else [0.33, 0.33, 0.34]
 
-    def make_decision(self, win_prob: float, pot_odds: float = 0.2) -> str:
+    def make_decision(self, win_prob: float) -> str:
         """Make decision based on win probability"""
         if win_prob < 0.3:  # Less than 30% chance to win
             return 'fold'
