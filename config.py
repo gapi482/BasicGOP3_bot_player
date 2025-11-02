@@ -22,3 +22,4 @@ BOT_BEHAVIOR = {
 # Poker card constants and default screen regions
 CARD_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
 CARD_SUITS = ['h', 'd', 'c', 's']
+CARD_EMOJIS = {'h': '♥', 'd': '♦', 'c': '♣', 's': '♠'}

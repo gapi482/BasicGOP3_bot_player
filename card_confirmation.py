@@ -25,14 +25,14 @@ class CardConfirmationWindow:
 
         # Themed colors inspired by GOP3
         # Poker green theme
-        self.theme_bg = '#0b5d1e'       # poker table green
-        self.theme_panel = '#0e6f26'    # slightly lighter/darker green panel
-        self.theme_accent = '#f0c674'   # gold accent
-        self.theme_text = '#e6eef2'     # near-white text
+        self.theme_bg = '#0b5d1e'  # poker table green
+        self.theme_panel = '#0e6f26'  # slightly lighter/darker green panel
+        self.theme_accent = '#f0c674'  # gold accent
+        self.theme_text = '#e6eef2'  # near-white text
 
         # Card options
         self.ranks = list(config.CARD_RANKS)
-        self.suit_emojis = {'h': '♥', 'd': '♦', 'c': '♣', 's': '♠'}
+        self.suit_emojis = config.CARD_EMOJIS
         self.suits = list(config.CARD_SUITS)
         self.card_options = [f"{rank}{suit}" for rank in self.ranks for suit in self.suits]
 
@@ -61,7 +61,7 @@ class CardConfirmationWindow:
             self.root.mainloop()
         except Exception:
             pass
-        
+
     def load_template_images(self):
         """Load template images for display in the UI"""
         try:
@@ -74,7 +74,7 @@ class CardConfirmationWindow:
                     self.template_images[card] = ImageTk.PhotoImage(Image.fromarray(template_rgb))
         except Exception as e:
             print(f"Error loading template images: {e}")
-    
+
     def show_confirmation(self, detected_player_cards, detected_table_cards, extracted_images):
         """Update internal data and return the latest choice; window is managed on main thread."""
         # Update internal snapshots for Update/New Game actions
@@ -90,13 +90,14 @@ class CardConfirmationWindow:
                     # On initial startup, fill ALL fields (not just blanks)
                     # Check if all fields are empty - this indicates initial load
                     all_empty = (
-                        self.player_card1_rank.get() == '' and
-                        self.player_card1_suit.get() == '' and
-                        self.player_card2_rank.get() == '' and
-                        self.player_card2_suit.get() == ''
+                            self.player_card1_rank.get() == '' and
+                            self.player_card1_suit.get() == '' and
+                            self.player_card2_rank.get() == '' and
+                            self.player_card2_suit.get() == ''
                     )
                     # If all empty, fill everything; otherwise only fill blanks
                     self._apply_cards_to_ui(player, table, fill_only_blank=not all_empty)
+
                 self.root.after(0, _prefill)
         except Exception as e:
             print(f"Error prefilling UI: {e}")
@@ -109,7 +110,7 @@ class CardConfirmationWindow:
             'player_cards': detected_player_cards or [],
             'table_cards': detected_table_cards or []
         }
-    
+
     def _build_window(self):
         """Build the confirmation window UI (must be called on main thread)."""
         self.root = tk.Tk()
@@ -121,16 +122,16 @@ class CardConfirmationWindow:
             self.root.lift()
         except Exception:
             pass
-        
+
         # Apply base theme
         self.root.configure(bg=self.theme_bg)
-        
+
         # Load calibration if available
         self._load_calibration()
 
         # Load template images (requires an active Tk root)
         self.load_template_images()
-        
+
         # Main frame
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -148,108 +149,114 @@ class CardConfirmationWindow:
             style.configure('TCombobox', fieldbackground='#ffffff', foreground='#000000')
         except Exception:
             pass
-        
+
         # Title
-        title_label = ttk.Label(main_frame, text="Quick Card Correction", 
-                               font=("Arial", 12, "bold"))
+        title_label = ttk.Label(main_frame, text="Quick Card Correction",
+                                font=("Arial", 12, "bold"))
         title_label.grid(row=0, column=0, columnspan=6, pady=(0, 15))
-        
+
         # Player cards section
         player_frame = ttk.LabelFrame(main_frame, text="Player Cards", padding="8")
         player_frame.grid(row=1, column=0, columnspan=6, sticky=(tk.W, tk.E), pady=(0, 10))
-        
+
         # Player card 1
         ttk.Label(player_frame, text="Card 1:").grid(row=0, column=0, padx=(0, 5))
-        self.player_card1_rank = tk.StringVar(value=self.player_cards[0][0] if len(self.player_cards) > 0 and self.player_cards[0] else "")
-        self.player_card1_suit = tk.StringVar(value=self.player_cards[0][1] if len(self.player_cards) > 0 and self.player_cards[0] else "")
-        
+        self.player_card1_rank = tk.StringVar(
+            value=self.player_cards[0][0] if len(self.player_cards) > 0 and self.player_cards[0] else "")
+        self.player_card1_suit = tk.StringVar(
+            value=self.player_cards[0][1] if len(self.player_cards) > 0 and self.player_cards[0] else "")
+
         # Rank text entry with auto-uppercase
         rank1_entry = ttk.Entry(player_frame, textvariable=self.player_card1_rank, width=3)
         rank1_entry.grid(row=0, column=1, padx=(0, 5))
         self._bind_uppercase(self.player_card1_rank)
-        
+
         # Suit buttons for card 1
         self.player1_suit_buttons = {}
         for i, (suit, emoji) in enumerate(self.suit_emojis.items()):
             fg = '#c0392b' if suit in ('h', 'd') else '#000000'
             btn = tk.Button(player_frame, text=emoji, width=2, height=1,
-                           command=lambda s=suit: self._set_suit(1, s),
-                           bg=self._suit_bg(self.player_card1_suit.get(), suit),
-                           fg=fg, font=("Arial", 22, "bold"), relief=tk.RIDGE)
-            btn.grid(row=0, column=2+i, padx=2)
+                            command=lambda s=suit: self._set_suit(1, s),
+                            bg=self._suit_bg(self.player_card1_suit.get(), suit),
+                            fg=fg, font=("Arial", 22, "bold"), relief="ridge")
+            btn.grid(row=0, column=2 + i, padx=2)
             self.player1_suit_buttons[suit] = btn
-        
+
         # Player card 2
         ttk.Label(player_frame, text="Card 2:").grid(row=1, column=0, padx=(0, 5), pady=(5, 0))
-        self.player_card2_rank = tk.StringVar(value=self.player_cards[1][0] if len(self.player_cards) > 1 and self.player_cards[1] else "")
-        self.player_card2_suit = tk.StringVar(value=self.player_cards[1][1] if len(self.player_cards) > 1 and self.player_cards[1] else "")
-        
+        self.player_card2_rank = tk.StringVar(
+            value=self.player_cards[1][0] if len(self.player_cards) > 1 and self.player_cards[1] else "")
+        self.player_card2_suit = tk.StringVar(
+            value=self.player_cards[1][1] if len(self.player_cards) > 1 and self.player_cards[1] else "")
+
         rank2_entry = ttk.Entry(player_frame, textvariable=self.player_card2_rank, width=3)
         rank2_entry.grid(row=1, column=1, padx=(0, 5), pady=(5, 0))
         self._bind_uppercase(self.player_card2_rank)
-        
+
         # Suit buttons for card 2
         self.player2_suit_buttons = {}
         for i, (suit, emoji) in enumerate(self.suit_emojis.items()):
             fg = '#c0392b' if suit in ('h', 'd') else '#000000'
             btn = tk.Button(player_frame, text=emoji, width=2, height=1,
-                           command=lambda s=suit: self._set_suit(2, s),
-                           bg=self._suit_bg(self.player_card2_suit.get(), suit),
-                           fg=fg, font=("Arial", 20, "bold"), relief=tk.RIDGE)
-            btn.grid(row=1, column=2+i, padx=2, pady=(5, 0))
+                            command=lambda s=suit: self._set_suit(2, s),
+                            bg=self._suit_bg(self.player_card2_suit.get(), suit),
+                            fg=fg, font=("Arial", 20, "bold"), relief="ridge")
+            btn.grid(row=1, column=2 + i, padx=2, pady=(5, 0))
             self.player2_suit_buttons[suit] = btn
-        
+
         # table cards section
         table_frame = ttk.LabelFrame(main_frame, text="Table Cards", padding="8")
         table_frame.grid(row=2, column=0, columnspan=6, sticky=(tk.W, tk.E), pady=(0, 10))
-        
+
         # table card variables
         self.table_ranks = []
         self.table_suits = []
         self.table_suit_buttons = []
         for i in range(5):
-            rank_var = tk.StringVar(value=self.table_cards[i][0] if i < len(self.table_cards) and self.table_cards[i] else "")
-            suit_var = tk.StringVar(value=self.table_cards[i][1] if i < len(self.table_cards) and self.table_cards[i] else "")
+            rank_var = tk.StringVar(
+                value=self.table_cards[i][0] if i < len(self.table_cards) and self.table_cards[i] else "")
+            suit_var = tk.StringVar(
+                value=self.table_cards[i][1] if i < len(self.table_cards) and self.table_cards[i] else "")
             self.table_ranks.append(rank_var)
             self.table_suits.append(suit_var)
-            
+
             # Row layout: flop (0..2) on row 0, turn/river (3..4) on row 1
             row_idx = 0 if i < 3 else 1
             base_col = (i if i < 3 else (i - 3)) * 6
-            
-            ttk.Label(table_frame, text=f"{i+1}:").grid(row=row_idx, column=base_col, padx=(0, 2), pady=(0, 4))
+
+            ttk.Label(table_frame, text=f"{i + 1}:").grid(row=row_idx, column=base_col, padx=(0, 2), pady=(0, 4))
             rank_entry = ttk.Entry(table_frame, textvariable=rank_var, width=3)
-            rank_entry.grid(row=row_idx, column=base_col+1, padx=(0, 2), pady=(0, 4))
+            rank_entry.grid(row=row_idx, column=base_col + 1, padx=(0, 2), pady=(0, 4))
             self._bind_uppercase(rank_var)
-            
+
             # Suit buttons for table cards
             btn_map = {}
             for j, (suit, emoji) in enumerate(self.suit_emojis.items()):
                 fg = '#c0392b' if suit in ('h', 'd') else '#000000'
                 btn = tk.Button(table_frame, text=emoji, width=2, height=1,
-                               command=lambda s=suit, idx=i: self._set_table_suit(idx, s),
-                               bg=self._suit_bg(suit_var.get(), suit),
-                               fg=fg, font=("Arial", 20, "bold"), relief=tk.RIDGE)
-                btn.grid(row=row_idx, column=base_col+2+j, padx=2, pady=(0, 4))
+                                command=lambda s=suit, idx=i: self._set_table_suit(idx, s),
+                                bg=self._suit_bg(suit_var.get(), suit),
+                                fg=fg, font=("Arial", 20, "bold"), relief="ridge")
+                btn.grid(row=row_idx, column=base_col + 2 + j, padx=2, pady=(0, 4))
                 btn_map[suit] = btn
             self.table_suit_buttons.append(btn_map)
-        
+
         # Action buttons
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=6, pady=(15, 0))
-        
+
         # Confirm button
-        confirm_btn = ttk.Button(button_frame, text="CONFIRM & PLAY", 
-                                command=self._confirm_cards, style='Accent.TButton')
+        confirm_btn = ttk.Button(button_frame, text="CONFIRM & PLAY",
+                                 command=self._confirm_cards, style='Accent.TButton')
         confirm_btn.grid(row=0, column=0, padx=(0, 10))
-        
+
         # Fold button
         fold_btn = ttk.Button(button_frame, text="FOLD", command=self._fold_hand)
         fold_btn.grid(row=0, column=1, padx=(0, 10))
-        
+
         # Skip button
-        skip_btn = ttk.Button(button_frame, text="SKIP", 
-                             command=self._skip_confirmation)
+        skip_btn = ttk.Button(button_frame, text="SKIP",
+                              command=self._skip_confirmation)
         skip_btn.grid(row=0, column=2)
 
         # Update State: detect and fill only new cards (blank fields)
@@ -259,11 +266,11 @@ class CardConfirmationWindow:
         # New Game: reset entries and refresh detected player/flop if present
         new_game_btn = ttk.Button(button_frame, text="NEW GAME", command=self._new_game)
         new_game_btn.grid(row=0, column=4, padx=(10, 0))
-        
+
         # Bind Enter key to confirm
         self.root.bind('<Return>', lambda e: self._confirm_cards())
         self.root.bind('<Escape>', lambda e: self._fold_hand())
-        
+
         # Focus on first combo box
         try:
             # Focus first rank entry if available
@@ -274,7 +281,6 @@ class CardConfirmationWindow:
         except Exception:
             pass
 
-    
     def _suit_bg(self, current_value, this_suit):
         """Background color for suit buttons based on selection state."""
         return self.theme_accent if current_value == this_suit else '#d0d7de'
@@ -282,6 +288,7 @@ class CardConfirmationWindow:
     def _bind_uppercase(self, tk_string_var):
         """Bind a trace to always keep the entry uppercase and restricted to valid ranks."""
         valid_set = set(self.ranks)
+
         def _on_change(*_):
             value = tk_string_var.get().upper()
             # allow T for 10
@@ -295,6 +302,7 @@ class CardConfirmationWindow:
                     # keep last valid char only or clear
                     value = value if value in valid_set else ''
             tk_string_var.set(value)
+
         tk_string_var.trace_add('write', _on_change)
 
     def _set_suit(self, card_num, suit):
@@ -304,22 +312,22 @@ class CardConfirmationWindow:
         else:
             self.player_card2_suit.set(suit)
         self._update_suit_buttons()
-    
+
     def _set_table_suit(self, card_idx, suit):
         """Set suit for table card"""
         self.table_suits[card_idx].set(suit)
         self._update_suit_buttons()
-    
+
     def _update_suit_buttons(self):
         """Update suit button colors"""
         # Update player card 1 buttons
         for suit, btn in self.player1_suit_buttons.items():
             btn.configure(bg=self._suit_bg(self.player_card1_suit.get(), suit))
-        
+
         # Update player card 2 buttons
         for suit, btn in self.player2_suit_buttons.items():
             btn.configure(bg=self._suit_bg(self.player_card2_suit.get(), suit))
-        
+
         # Update table card buttons
         for idx, suit_map in enumerate(self.table_suit_buttons):
             for suit, btn in suit_map.items():
@@ -341,7 +349,7 @@ class CardConfirmationWindow:
             if not fill_only_blank or self.player_card2_rank.get() == '' or self.player_card2_suit.get() == '':
                 self.player_card2_rank.set(rank)
                 self.player_card2_suit.set(suit)
-        
+
         # Table cards (up to 5)
         for i in range(min(5, len(self.table_ranks))):
             if i < len(table_cards) and table_cards[i]:
@@ -350,7 +358,7 @@ class CardConfirmationWindow:
                 if not fill_only_blank or self.table_ranks[i].get() == '' or self.table_suits[i].get() == '':
                     self.table_ranks[i].set(rank)
                     self.table_suits[i].set(suit)
-        
+
         self._update_suit_buttons()
 
     def _load_calibration(self):
@@ -373,7 +381,7 @@ class CardConfirmationWindow:
         # Prefer values provided by the bot
         player = list(self.player_cards) if self.player_cards else []
         table = list(self.table_cards) if self.table_cards else []
-        
+
         # If images are available but values missing, try template matcher quickly
         if self.extracted_images and (len(player) < 2 or len(table) < 5):
             try:
@@ -390,7 +398,7 @@ class CardConfirmationWindow:
                 # Flop
                 for i in range(3):
                     if len(table) <= i or not table[i]:
-                        img = self.extracted_images.get(f"flop_{i+1}")
+                        img = self.extracted_images.get(f"flop_{i + 1}")
                         if img is not None:
                             match = self.card_detector.template_matcher.match_card(img, confidence_threshold=0.3)
                             if match:
@@ -459,7 +467,7 @@ class CardConfirmationWindow:
         # Prefill from detected values
         player_cards, table_cards = self._detect_from_extracted_or_existing()
         self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=False)
-    
+
     def _confirm_cards(self):
         """Confirm the selected cards"""
         # Get player cards
@@ -468,20 +476,19 @@ class CardConfirmationWindow:
             player_cards.append(f"{self.player_card1_rank.get()}{self.player_card1_suit.get()}")
         if self.player_card2_rank.get() and self.player_card2_suit.get():
             player_cards.append(f"{self.player_card2_rank.get()}{self.player_card2_suit.get()}")
-        
+
         # Get table cards
         table_cards = []
         for i in range(5):
             if self.table_ranks[i].get() and self.table_suits[i].get():
                 table_cards.append(f"{self.table_ranks[i].get()}{self.table_suits[i].get()}")
-        
+
         self.result = {
             'action': 'confirm',
             'player_cards': player_cards,
             'table_cards': table_cards
         }
 
-    
     def _fold_hand(self):
         """Fold the hand"""
         self.result = {
@@ -489,7 +496,7 @@ class CardConfirmationWindow:
             'player_cards': [],
             'table_cards': []
         }
-    
+
     def _skip_confirmation(self):
         """Skip confirmation and use detected cards"""
         self.result = {

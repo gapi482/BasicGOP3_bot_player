@@ -10,6 +10,7 @@ import os
 import json
 from logger import Logger
 
+
 def main():
     print("=== Governor of Poker Bot ===")
     logger = Logger()
