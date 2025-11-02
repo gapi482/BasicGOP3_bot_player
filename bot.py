@@ -84,7 +84,8 @@ class GovernorOfPokerBot:
                 card_img = screenshot[rel_y:rel_y + h, rel_x:rel_x + w]
                 extracted_images[key] = card_img
 
-            self.logger.log(f"Fresh capture: {len(player_cards)} player cards, {len(table_cards)} table cards")
+            if config.PERFORMANCE.get('verbose_logging', False):
+                self.logger.log(f"Fresh capture: {len(player_cards)} player cards, {len(table_cards)} table cards")
             return player_cards, table_cards, extracted_images
 
         except Exception as e:
@@ -103,7 +104,8 @@ class GovernorOfPokerBot:
             return
 
         # Save the screenshot for debugging
-        cv2.imwrite('game_screenshot_test.png', screenshot)
+        if config.PERFORMANCE.get('save_screenshots', False):
+            cv2.imwrite('game_screenshot_test.png', screenshot)
 
         # Test player cards
         player_cards = self.card_detector.get_player_cards(screenshot, self.screen_regions, self.game_window)
@@ -130,7 +132,8 @@ class GovernorOfPokerBot:
             card_img = screenshot[rel_y:rel_y + h, rel_x:rel_x + w]
 
             # Save extracted card image for debugging
-            cv2.imwrite(f'extracted_{region_name}.png', card_img)
+            if config.PERFORMANCE.get('save_extracted_images', False):
+                cv2.imwrite(f'extracted_{region_name}.png', card_img)
 
             # Check if a card is present
             is_present = self.card_detector._is_card_present(card_img)
@@ -152,7 +155,8 @@ class GovernorOfPokerBot:
             else:
                 print(f"  Detection skipped - no card present")
 
-            print(f"  Image saved as: extracted_{region_name}.png")
+            if config.PERFORMANCE.get('save_extracted_images', False):
+                print(f"  Image saved as: extracted_{region_name}.png")
 
         # Analyze table cards
         for i, coords in enumerate(self.screen_regions['flop_cards']):
@@ -165,7 +169,8 @@ class GovernorOfPokerBot:
             card_img = screenshot[rel_y:rel_y + h, rel_x:rel_x + w]
 
             # Save extracted card image for debugging
-            cv2.imwrite(f'extracted_{region_name}.png', card_img)
+            if config.PERFORMANCE.get('save_extracted_images', False):
+                cv2.imwrite(f'extracted_{region_name}.png', card_img)
 
             # Check if a card is present
             is_present = self.card_detector._is_card_present(card_img)
@@ -187,7 +192,8 @@ class GovernorOfPokerBot:
             else:
                 print(f"  Detection skipped - no card present")
 
-            print(f"  Image saved as: extracted_{region_name}.png")
+            if config.PERFORMANCE.get('save_extracted_images', False):
+                print(f"  Image saved as: extracted_{region_name}.png")
 
         # Analyze turn card
         x, y, w, h = self.screen_regions['turn_card']
@@ -326,21 +332,25 @@ class GovernorOfPokerBot:
                         (rel_x, rel_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
         # Save the annotated image
-        cv2.imwrite('card_detection_test_results.png', test_img)
-        print(f"\n=== Visual Test Results ===")
-        print(f"Annotated screenshot saved as: card_detection_test_results.png")
-        print(f"Open this file to see the detected cards and their presence status")
+        if config.PERFORMANCE.get('save_screenshots', False):
+            cv2.imwrite('card_detection_test_results.png', test_img)
+            print(f"\n=== Visual Test Results ===")
+            print(f"Annotated screenshot saved as: card_detection_test_results.png")
+            print(f"Open this file to see the detected cards and their presence status")
 
         # Summary
         print(f"\n=== Summary ===")
         print(f"Total player cards detected: {len(player_cards)}/2")
         print(f"Total table cards detected: {len(table_cards)}/5")
         print(f"Total cards detected: {len(player_cards) + len(table_cards)}/7")
-        print(f"\nGenerated files:")
-        print(f"  - game_screenshot_test.png (full screenshot)")
-        print(f"  - card_detection_test_results.png (with detection results)")
-        print(f"  - extracted_*.png (individual card images)")
-        print(f"\nCheck the extracted_*.png files to see what the bot is trying to match")
+        if config.PERFORMANCE.get('save_screenshots', False) or config.PERFORMANCE.get('save_extracted_images', False):
+            print(f"\nGenerated files:")
+            if config.PERFORMANCE.get('save_screenshots', False):
+                print(f"  - game_screenshot_test.png (full screenshot)")
+                print(f"  - card_detection_test_results.png (with detection results)")
+            if config.PERFORMANCE.get('save_extracted_images', False):
+                print(f"  - extracted_*.png (individual card images)")
+                print(f"\nCheck the extracted_*.png files to see what the bot is trying to match")
         print(f"Green/Blue rectangles indicate cards that are present")
         print(f"Red rectangles indicate areas where no card was detected")
 
@@ -423,13 +433,20 @@ class GovernorOfPokerBot:
                 check_th = config.BOT_BEHAVIOR.get('check_threshold', 0.6)
 
                 if win_prob < fold_th:
-                    self._take_action('fold')
+                    action_to_take = 'fold'
                 elif win_prob < check_th:
                     # Prefer check, fallback to call
-                    self._take_action('check')
+                    action_to_take = 'check'
                 else:
                     # Prefer raise/bet
-                    self._take_action('raise')
+                    action_to_take = 'raise'
+                
+                action_start = time.time()
+                self._take_action(action_to_take)
+                action_time = time.time() - action_start
+                
+                if config.PERFORMANCE.get('verbose_logging', False):
+                    self.logger.log(f"Action '{action_to_take}' executed in {action_time:.3f}s")
             except Exception:
                 # Fallback to simple evaluation if simulation fails
                 all_cards = final_player_cards + final_table_cards
@@ -544,8 +561,9 @@ class GovernorOfPokerBot:
                 cv2.rectangle(test_img, (rel_x, rel_y), (rel_x + w, rel_y + h), (0, 0, 255), 2)
 
             # Save test image
-            cv2.imwrite('test_regions.png', test_img)
-            print("Test regions image saved as test_regions.png")
+            if config.PERFORMANCE.get('save_screenshots', False):
+                cv2.imwrite('test_regions.png', test_img)
+                print("Test regions image saved as test_regions.png")
 
     def calibrate_screen(self):
         """Calibrate screen regions"""

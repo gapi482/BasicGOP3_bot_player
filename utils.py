@@ -13,6 +13,7 @@ import pygetwindow as gw
 from typing import Tuple, Dict, Any, Optional
 import time
 from logger import Logger
+import config
 
 
 class WindowDetector:
@@ -101,29 +102,37 @@ class ScreenshotManager:
 
     def capture_game_window(self):
         """Capture game window screenshot"""
-        self.logger.log("Taking screenshot...")
+        if config.PERFORMANCE.get('verbose_logging', False):
+            self.logger.log("Taking screenshot...")
         try:
             # Try to use the window capture first
             img = self.window_capture.capture_game_image()
 
             if img is not None:
                 # Save for debugging
-                cv2.imwrite('current_game.png', img)
+                if config.PERFORMANCE.get('save_screenshots', False):
+                    cv2.imwrite('current_game.png', img)
                 return img
             else:
                 # Fallback to old method
-                self.logger.log("Window capture failed, using fallback method")
+                if config.PERFORMANCE.get('verbose_logging', False):
+                    self.logger.log("Window capture failed, using fallback method")
                 im = ImageGrab.grab(bbox=(
                     self.game_window['left'],
                     self.game_window['top'],
                     self.game_window['left'] + self.game_window['width'],
                     self.game_window['top'] + self.game_window['height']
                 ))
-                screenshot_path = 'current_game.png'
-                im.save(screenshot_path)
 
-                # Read back and ensure proper format
-                result = cv2.imread(screenshot_path)
+                if config.PERFORMANCE.get('save_screenshots', False):
+                    screenshot_path = 'current_game.png'
+                    im.save(screenshot_path)
+                    # Read back and ensure proper format
+                    result = cv2.imread(screenshot_path)
+                else:
+                    # Convert directly without saving
+                    result = cv2.cvtColor(np.array(im), cv2.COLOR_RGB2BGR)
+
                 if result is not None:
                     result = self.window_capture._ensure_bgr_format(result)
                 return result

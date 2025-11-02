@@ -84,12 +84,13 @@ class CardConfirmationWindow:
         self.extracted_images = extracted_images.copy() if extracted_images else {}
 
         # Debug output
-        self.logger.log(
-            f"Received: {len(self.player_cards)} player cards, {len(self.table_cards)} table cards, {len(self.extracted_images)} images")
-        if self.player_cards:
-            self.logger.log(f"Player cards: {self.player_cards}")
-        if self.table_cards:
-            self.logger.log(f"Table cards: {self.table_cards}")
+        if config.PERFORMANCE.get('verbose_logging', False):
+            self.logger.log(
+                f"Received: {len(self.player_cards)} player cards, {len(self.table_cards)} table cards, {len(self.extracted_images)} images")
+            if self.player_cards:
+                self.logger.log(f"Player cards: {self.player_cards}")
+            if self.table_cards:
+                self.logger.log(f"Table cards: {self.table_cards}")
 
         # If window exists, populate it with the latest detections
         try:
@@ -104,7 +105,8 @@ class CardConfirmationWindow:
                 # Fill all fields if we have new data, otherwise only fill blanks
                 # Update UI immediately (we're running Tk on main thread now)
                 self._apply_cards_to_ui(player, table, fill_only_blank=not has_new_data)
-                self.logger.log(f"UI updated with {len(player)} player, {len(table)} table cards")
+                if config.PERFORMANCE.get('verbose_logging', False):
+                    self.logger.log(f"UI updated with {len(player)} player, {len(table)} table cards")
 
                 # Force window to update and become visible
                 self.root.update_idletasks()
@@ -127,7 +129,7 @@ class CardConfirmationWindow:
         """Build the confirmation window UI (must be called on main thread)."""
         self.root = tk.Tk()
         self.root.title("Card Confirmation")
-        self.root.geometry("780x460")
+        self.root.geometry("740x460")
         self.root.attributes('-topmost', True)  # Always on top
         # Do not force focus; keep CMD usable while this panel stays visible
         try:
@@ -449,11 +451,13 @@ class CardConfirmationWindow:
 
     def _update_state(self):
         """Fill blank fields by capturing a fresh screenshot and detecting new cards."""
-        self.logger.log("Update State button clicked")
+        if config.PERFORMANCE.get('verbose_logging', False):
+            self.logger.log("Update State button clicked")
         # Try to capture a new screenshot if callback is available
         if self.capture_callback is not None:
             try:
-                self.logger.log("Capturing fresh screenshot via callback...")
+                if config.PERFORMANCE.get('verbose_logging', False):
+                    self.logger.log("Capturing fresh screenshot via callback...")
                 fresh_player, fresh_table, fresh_images = self.capture_callback()
                 # Update internal state with fresh data
                 if fresh_player:
@@ -492,7 +496,8 @@ class CardConfirmationWindow:
         # Try to capture a new screenshot if callback is available
         if self.capture_callback is not None:
             try:
-                self.logger.log("Capturing fresh screenshot via callback...")
+                if config.PERFORMANCE.get('verbose_logging', False):
+                    self.logger.log("Capturing fresh screenshot via callback...")
                 fresh_player, fresh_table, fresh_images = self.capture_callback()
                 # Update internal state with fresh data
                 self.player_cards = fresh_player if fresh_player is not None else []
@@ -512,7 +517,8 @@ class CardConfirmationWindow:
         # Prefill from detected values
         player_cards, table_cards = self._detect_from_extracted_or_existing()
         self._apply_cards_to_ui(player_cards, table_cards, fill_only_blank=False)
-        self.logger.log(f"New Game: Applied {len(player_cards)} player, {len(table_cards)} table cards to UI")
+        if config.PERFORMANCE.get('verbose_logging', False):
+            self.logger.log(f"New Game: Applied {len(player_cards)} player, {len(table_cards)} table cards to UI")
 
         # Force UI update
         if self.root and self.root.winfo_exists():

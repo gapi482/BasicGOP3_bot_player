@@ -19,6 +19,13 @@ BOT_BEHAVIOR = {
     'enable_card_confirmation': True,  # Enable the card confirmation window
 }
 
+# Performance settings
+PERFORMANCE = {
+    'save_extracted_images': False,  # Save extracted card images to PNG (disable for faster execution)
+    'save_screenshots': False,       # Save screenshots to PNG (disable for faster execution)
+    'verbose_logging': False,        # Enable detailed logging (disable for faster execution)
+}
+
 # Poker card constants and default screen regions
 CARD_RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K']
 CARD_SUITS = ['h', 'd', 'c', 's']
